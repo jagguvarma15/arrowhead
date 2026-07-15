@@ -22,6 +22,20 @@ def jail(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def stdio_transport():
+    """Mark the current context as stdio so scoped tools are visible.
+
+    In-memory test clients have no transport; FastMCP then enforces
+    component auth and hides every scoped tool from an anonymous caller.
+    """
+    from fastmcp.server.context import _current_transport
+
+    token = _current_transport.set("stdio")
+    yield
+    _current_transport.reset(token)
+
+
+@pytest.fixture
 def make_resolver():
     """Factory for getaddrinfo stand-ins returning fixed addresses."""
 
