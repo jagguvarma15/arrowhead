@@ -1,0 +1,28 @@
+[project]
+name = "arrowhead"
+version = "0.1.0"
+description = "Hardened MCP server reference implementation: OAuth 2.1, SSRF and path-traversal protection, sandboxed evaluation, and token-efficient schemas."
+readme = "README.md"
+authors = [
+    { name = "Jagadesh Varma Nadimpalli", email = "79473081+jagguvarma15@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=3.4.4",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.14.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.2,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
