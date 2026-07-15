@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     # without a code change, e.g. ARROWHEAD_DISABLED_TOOLS=safe_fetch
     disabled_tools: str = ""
 
+    # how long clients may cache the tool list; it only changes on
+    # deploy or when the kill switch flips, both of which restart the
+    # process anyway
+    tool_list_ttl_ms: int = 3_600_000
+
     def rate_limits_per_minute(self) -> dict[str, int]:
         return {
             "safe_fetch": self.safe_fetch_per_minute,

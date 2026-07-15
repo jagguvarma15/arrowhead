@@ -7,6 +7,7 @@ Set ARROWHEAD_TRANSPORT=http (with auth enabled) for deployment.
 from fastmcp import FastMCP
 
 from arrowhead.auth.oauth import build_auth_provider
+from arrowhead.cache import attach_list_cache_hints
 from arrowhead.config import get_settings
 from arrowhead.observability.audit_log import AuditLogMiddleware
 from arrowhead.observability.tracing import TracingMiddleware
@@ -41,6 +42,7 @@ def create_server() -> FastMCP:
         middleware=middleware,
     )
     register_tools(mcp)
+    attach_list_cache_hints(mcp, settings.tool_list_ttl_ms)
     return mcp
 
 
