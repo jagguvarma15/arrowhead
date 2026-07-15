@@ -7,13 +7,12 @@ the spans are no-ops, so this middleware costs nothing in deployments
 that do not collect traces.
 """
 
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
 from opentelemetry.trace.propagation.tracecontext import (
     TraceContextTextMapPropagator,
 )
-
-from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 _tracer = trace.get_tracer("arrowhead")
 _propagator = TraceContextTextMapPropagator()

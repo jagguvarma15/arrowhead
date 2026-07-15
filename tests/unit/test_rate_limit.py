@@ -1,5 +1,4 @@
 import fakeredis.aioredis
-import pytest
 from fastmcp import Client, FastMCP
 
 from arrowhead.security.rate_limit import (
