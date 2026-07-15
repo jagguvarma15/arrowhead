@@ -30,6 +30,9 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Put the repo root on sys.path so the tests package (payloads, shared
+# fixtures) imports the same way under `pytest` and `python -m pytest`.
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 88
