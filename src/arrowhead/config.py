@@ -27,6 +27,20 @@ class Settings(BaseSettings):
     port: int = 8000
     stateless_http: bool = True
 
+    # Host/Origin allowlists defend against DNS rebinding of the local
+    # endpoint. Comma-separated; set these to the public hostname when
+    # deploying behind a proxy. Empty leaves FastMCP's localhost defaults.
+    allowed_hosts: str = ""
+    allowed_origins: str = ""
+
+    def allowed_hosts_list(self) -> list[str] | None:
+        hosts = [h.strip() for h in self.allowed_hosts.split(",") if h.strip()]
+        return hosts or None
+
+    def allowed_origins_list(self) -> list[str] | None:
+        origins = [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
+        return origins or None
+
     # auth: OAuth 2.1 resource server. Off only for local stdio use.
     # TLS is terminated by the hosting platform or reverse proxy.
     auth_enabled: bool = False
