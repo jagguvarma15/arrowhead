@@ -41,7 +41,7 @@ def create_server() -> FastMCP:
         auth=build_auth_provider(settings),
         middleware=middleware,
     )
-    register_tools(mcp)
+    register_tools(mcp, enforce_scopes=settings.auth_enabled)
     attach_list_cache_hints(mcp, settings.tool_list_ttl_ms)
     return mcp
 
@@ -55,6 +55,8 @@ def main() -> None:
             host=settings.host,
             port=settings.port,
             stateless_http=settings.stateless_http,
+            allowed_hosts=settings.allowed_hosts_list(),
+            allowed_origins=settings.allowed_origins_list(),
         )
     else:
         mcp.run()

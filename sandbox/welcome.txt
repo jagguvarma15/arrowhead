@@ -1,0 +1,7 @@
+This file lives inside the read_file jail root.
+
+Try reading it with the read_file tool:
+  read_file(path="welcome.txt")
+
+Requests that try to escape this directory, such as "../../etc/passwd"
+or an absolute path, are refused.
