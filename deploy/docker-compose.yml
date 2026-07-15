@@ -1,0 +1,35 @@
+# Local development stack: the server plus Redis for shared rate-limit
+# state. Auth is left off here so MCP Inspector can connect without an
+# authorization server; enable it by setting the ARROWHEAD_OAUTH_* and
+# ARROWHEAD_AUTH_ENABLED variables before deploying anywhere real.
+services:
+  arrowhead:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      ARROWHEAD_TRANSPORT: http
+      ARROWHEAD_HOST: 0.0.0.0
+      ARROWHEAD_PORT: "8000"
+      ARROWHEAD_AUTH_ENABLED: "false"
+      ARROWHEAD_REDIS_URL: redis://redis:6379/0
+      ARROWHEAD_JAIL_ROOT: /app/sandbox
+    volumes:
+      # Path is relative to this compose file, so the repo-root sandbox
+      # sits one level up.
+      - ../sandbox:/app/sandbox:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
