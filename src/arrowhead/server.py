@@ -5,6 +5,8 @@ Runs over stdio by default for local development and Inspector testing.
 
 from fastmcp import FastMCP
 
+from arrowhead.tools.registry import register_tools
+
 mcp = FastMCP(
     name="arrowhead",
     version="0.1.0",
@@ -14,11 +16,7 @@ mcp = FastMCP(
     ),
 )
 
-
-@mcp.tool(annotations={"readOnlyHint": True})
-def ping() -> str:
-    """Check that the server is alive. Example: ping() returns "pong"."""
-    return "pong"
+register_tools(mcp)
 
 
 def main() -> None:
