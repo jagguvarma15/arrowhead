@@ -6,6 +6,7 @@ reaches the public internet; the other two act only on server-local state.
 
 from fastmcp import FastMCP
 
+from arrowhead.auth.scopes import scope_checks
 from arrowhead.tools.calculate import calculate
 from arrowhead.tools.read_file import read_file
 from arrowhead.tools.safe_fetch import safe_fetch
@@ -19,6 +20,7 @@ def register_tools(mcp: FastMCP) -> None:
             "destructiveHint": False,
             "openWorldHint": True,
         },
+        auth=scope_checks("safe_fetch"),
     )
     mcp.tool(
         calculate,
@@ -27,6 +29,7 @@ def register_tools(mcp: FastMCP) -> None:
             "destructiveHint": False,
             "openWorldHint": False,
         },
+        auth=scope_checks("calculate"),
     )
     mcp.tool(
         read_file,
@@ -35,4 +38,5 @@ def register_tools(mcp: FastMCP) -> None:
             "destructiveHint": False,
             "openWorldHint": False,
         },
+        auth=scope_checks("read_file"),
     )

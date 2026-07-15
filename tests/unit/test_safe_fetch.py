@@ -80,3 +80,19 @@ async def test_oversized_response_rejected(make_resolver, monkeypatch):
 async def test_invalid_url_rejected():
     with pytest.raises(ToolError):
         await safe_fetch("")
+
+
+async def test_outbound_request_carries_no_credentials(make_resolver):
+    """The caller's MCP bearer token must never ride along on fetches."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "authorization" not in request.headers
+        assert "cookie" not in request.headers
+        return httpx.Response(200, text="ok")
+
+    result = await fetch_url(
+        "http://example.com/",
+        transport=httpx.MockTransport(handler),
+        getaddrinfo=make_resolver(PUBLIC_IP),
+    )
+    assert result["status"] == 200
