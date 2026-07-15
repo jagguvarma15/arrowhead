@@ -1,0 +1,43 @@
+# Render blueprint: a containerized web service plus a managed Redis
+# instance. Render terminates TLS and routes HTTPS to the container port.
+services:
+  - type: web
+    name: arrowhead
+    runtime: docker
+    dockerfilePath: deploy/Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /mcp
+    envVars:
+      - key: ARROWHEAD_TRANSPORT
+        value: http
+      - key: ARROWHEAD_HOST
+        value: 0.0.0.0
+      - key: ARROWHEAD_PORT
+        value: "8000"
+      - key: ARROWHEAD_AUTH_ENABLED
+        value: "true"
+      # Set these to your authorization server and this service's public
+      # URL in the Render dashboard; they are secrets, not committed here.
+      - key: ARROWHEAD_OAUTH_ISSUER
+        sync: false
+      - key: ARROWHEAD_OAUTH_AUDIENCE
+        sync: false
+      - key: ARROWHEAD_OAUTH_JWKS_URI
+        sync: false
+      - key: ARROWHEAD_SERVER_PUBLIC_URL
+        sync: false
+      - key: ARROWHEAD_ALLOWED_HOSTS
+        sync: false
+      - key: ARROWHEAD_ALLOWED_ORIGINS
+        sync: false
+      - key: ARROWHEAD_REDIS_URL
+        fromService:
+          name: arrowhead-redis
+          type: keyvalue
+          property: connectionString
+
+  - type: keyvalue
+    name: arrowhead-redis
+    plan: starter
+    ipAllowList: []
