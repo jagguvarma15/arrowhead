@@ -131,6 +131,8 @@ request.
   what is out of scope for this version
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — request flow from auth
   through rate limiting to the tool and the audit log
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — runbook for a live reference deployment
+- [`CHANGELOG.md`](CHANGELOG.md) — notable changes
 
 ## Deployment
 
@@ -140,6 +142,16 @@ local [`docker-compose.yml`](deploy/docker-compose.yml), and blueprints for
 terminate TLS itself; the hosting platform or a reverse proxy in front of the
 process must. Set the OAuth variables and enable auth before exposing the
 server anywhere public.
+
+[`docs/DEPLOY.md`](docs/DEPLOY.md) is the step-by-step runbook for a live
+reference instance on Render with WorkOS AuthKit, including verification,
+rollback, and corpus backup. Before going public, sanity-check concurrency and
+rate limiting against a local stack:
+
+```bash
+docker compose -f deploy/docker-compose.yml up --build -d
+uv run python scripts/loadtest.py http://localhost:8000 200
+```
 
 ## License
 
