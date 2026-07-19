@@ -54,12 +54,22 @@ class Grant:
             return False
         if "*" not in self.actions and action not in self.actions:
             return False
-        if resource.kind == "document":
-            expanded = self.prefix.replace(SUBJECT_TOKEN, subject)
-            return resource.identifier.startswith(expanded)
-        # Non-document resources (URLs) are not path-scoped; a subject/action
-        # match is enough. The SSRF guard is the resource-level control there.
-        return True
+        if resource.kind != "document":
+            # Non-document resources (URLs) are not path-scoped; a subject
+            # and action match is enough. The SSRF guard is the resource
+            # control there.
+            return True
+        expanded = self.prefix.replace(SUBJECT_TOKEN, subject)
+        if action == ACTION_SEARCH:
+            # Search is a range action: the requested area is allowed if it
+            # overlaps a granted area (either contains or is contained by
+            # it). The per-document read filter then restricts which matches
+            # are actually returned, so an overlap can never leak an
+            # unreadable document.
+            return resource.identifier.startswith(
+                expanded
+            ) or expanded.startswith(resource.identifier)
+        return resource.identifier.startswith(expanded)
 
 
 class Authorizer(Protocol):
