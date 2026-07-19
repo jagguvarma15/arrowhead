@@ -41,4 +41,8 @@ line-length = 88
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = ["E", "F", "I", "UP", "B", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use assert for verification and carry fake credentials as fixtures.
+"tests/**" = ["S101", "S105", "S106"]
