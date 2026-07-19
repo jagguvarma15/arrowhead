@@ -16,10 +16,13 @@ services:
       ARROWHEAD_AUTH_ENABLED: "false"
       ARROWHEAD_REDIS_URL: redis://redis:6379/0
       ARROWHEAD_JAIL_ROOT: /app/sandbox
+      ARROWHEAD_DOCS_ROOT: /app/documents
     volumes:
       # Path is relative to this compose file, so the repo-root sandbox
       # sits one level up.
       - ../sandbox:/app/sandbox:ro
+      # A named volume keeps the write corpus across restarts.
+      - arrowhead-corpus:/app/documents
     healthcheck:
       test:
         - CMD
@@ -42,3 +45,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+volumes:
+  arrowhead-corpus:
