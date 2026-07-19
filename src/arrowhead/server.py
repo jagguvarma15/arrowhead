@@ -13,6 +13,7 @@ from arrowhead.cache import attach_list_cache_hints
 from arrowhead.config import get_settings
 from arrowhead.health import register_health_routes
 from arrowhead.observability.audit_log import AuditLogMiddleware
+from arrowhead.observability.telemetry import configure_telemetry
 from arrowhead.observability.tracing import TracingMiddleware
 from arrowhead.security.kill_switch import KillSwitchMiddleware
 from arrowhead.security.rate_limit import build_rate_limit_middleware
@@ -64,6 +65,7 @@ def create_server() -> FastMCP:
 
 def main() -> None:
     settings = get_settings()
+    configure_telemetry(settings)
     mcp = create_server()
     if settings.transport == "http":
         mcp.run(
