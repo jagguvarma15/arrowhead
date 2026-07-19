@@ -39,12 +39,24 @@ _ANNOTATIONS = {
         "destructiveHint": False,
         "openWorldHint": False,
     },
+    "doc_retrieve": {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": True,
+    },
+    "doc_scan": {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
 }
 
 
 def register_tools(mcp: FastMCP, *, enforce_scopes: bool = True) -> None:
     from arrowhead.tools.calculate import calculate
     from arrowhead.tools.doc_read import doc_read
+    from arrowhead.tools.doc_retrieve import doc_retrieve
+    from arrowhead.tools.doc_scan import doc_scan
     from arrowhead.tools.doc_search import doc_search
     from arrowhead.tools.read_file import read_file
     from arrowhead.tools.safe_fetch import safe_fetch
@@ -55,6 +67,8 @@ def register_tools(mcp: FastMCP, *, enforce_scopes: bool = True) -> None:
         "read_file": read_file,
         "doc_search": doc_search,
         "doc_read": doc_read,
+        "doc_retrieve": doc_retrieve,
+        "doc_scan": doc_scan,
     }
     for name, function in functions.items():
         mcp.tool(
