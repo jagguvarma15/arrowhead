@@ -97,3 +97,28 @@ def test_incomplete_auth_config_is_rejected():
                 server_public_url="http://arrowhead.test",
             )
         )
+
+
+def test_workos_provider_is_built():
+    from fastmcp.server.auth.providers.workos import AuthKitProvider
+
+    provider = build_auth_provider(
+        Settings(
+            auth_enabled=True,
+            oauth_provider="workos",
+            oauth_authkit_domain="https://arrowhead.authkit.app",
+            server_public_url="https://arrowhead.example.com",
+        )
+    )
+    assert isinstance(provider, AuthKitProvider)
+
+
+def test_incomplete_workos_config_is_rejected():
+    with pytest.raises(ValueError, match="ARROWHEAD_OAUTH_AUTHKIT_DOMAIN"):
+        build_auth_provider(
+            Settings(
+                auth_enabled=True,
+                oauth_provider="workos",
+                server_public_url="https://arrowhead.example.com",
+            )
+        )

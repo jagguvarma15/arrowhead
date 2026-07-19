@@ -31,6 +31,13 @@ services:
         value: "true"
       # Set these to your authorization server and this service's public
       # URL in the Render dashboard; they are secrets, not committed here.
+      # For WorkOS: set ARROWHEAD_OAUTH_PROVIDER=workos and
+      # ARROWHEAD_OAUTH_AUTHKIT_DOMAIN. For a JWT/JWKS IdP: leave the
+      # provider as jwt and set the issuer, audience, and JWKS URI.
+      - key: ARROWHEAD_OAUTH_PROVIDER
+        sync: false
+      - key: ARROWHEAD_OAUTH_AUTHKIT_DOMAIN
+        sync: false
       - key: ARROWHEAD_OAUTH_ISSUER
         sync: false
       - key: ARROWHEAD_OAUTH_AUDIENCE
