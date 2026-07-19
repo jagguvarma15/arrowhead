@@ -41,8 +41,11 @@ client
 [ Scope check ]                caller must hold the tool's scope, else the tool is invisible
   |
   v
-[ Tool handler ]               input validation -> guarded action -> result
-  |                              (ssrf_guard / sandbox / path jail)
+[ Tool handler ]               input validation
+  |                              -> per-resource authorization (document tools)
+  |                              -> guarded action
+  |                              -> content sanitization + provenance (read side)
+  |                              (ssrf_guard / sandbox / path jail / authz / content)
   v
 [ Audit middleware ]           emits one structured log line
   |
@@ -53,9 +56,15 @@ client
 client
 ```
 
-A refusal at any stage (401, kill switch, rate limit, or a validation failure
-inside the tool) still produces an audit line and a closed span, so nothing is
-invisible to operators.
+The scope check is a capability gate (may this caller use this tool at all).
+The per-resource authorization inside the document tools is a separate, finer
+gate (may this caller act on this specific document): identity comes from the
+validated token, the default policy is deny, and a denial is audited as an
+`AuthorizationError` refusal without echoing the resource.
+
+A refusal at any stage (401, kill switch, rate limit, scope, per-resource
+authorization, or a validation failure inside the tool) still produces an audit
+line and a closed span, so nothing is invisible to operators.
 
 ## Authentication flow
 
@@ -82,17 +91,35 @@ src/arrowhead/
   cache.py               ttlMs / cacheScope hints on tools/list
   auth/
     oauth.py             resource server + mandatory audience validation
-    scopes.py            tool -> required scope
+    scopes.py            tool -> required scope, split by verb
     identity.py          caller identity from the validated token only
+  authz/
+    policy.py            default-deny per-resource ABAC + Authorizer seam
+    enforce.py           enforcement point the document tools call
+    confirmation.py      elicitation confirmation for destructive actions
+  store/
+    document_store.py    jailed corpus: read, list, stat, atomic write
+  content/
+    provenance.py        untrusted-data wrapping with randomized delimiters
+    json_safe.py         bounded JSON parsing
+    markdown_safe.py     HTML and image-exfiltration removal
+    text_safe.py         ANSI / control / invisible-character stripping
   tools/
-    registry.py          registers the three tools with annotations + scopes
+    registry.py          registers all tools with annotations + scopes
     safe_fetch.py        SSRF-guarded fetch
     calculate.py         validation + sandboxed evaluation
     read_file.py         path-jailed reader
+    doc_search.py        bounded, read-filtered corpus search
+    doc_read.py          format-aware sanitized document read
+    doc_retrieve.py      SSRF-guarded external fetch + sanitize
+    doc_scan.py          secrets / PII scan with redaction
+    doc_write.py         atomic, confirmed document write
   security/
     ssrf_guard.py        resolve, block private ranges, pin the address
     input_validation.py  shared allowlist validators
     sandbox.py           AST arithmetic interpreter (no eval)
+    search_match.py      ReDoS-safe literal / timed-regex matcher
+    secret_scan.py       fixed-pattern secret and PII detection
     rate_limit.py        token-bucket limiter, memory or Redis store
     kill_switch.py       per-tool disable
   observability/

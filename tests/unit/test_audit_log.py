@@ -73,3 +73,31 @@ async def test_refused_jail_escape_never_logs_the_path(
     assert records[0]["status"] == "refused"
     assert records[0]["arguments"] == {"path": "str[16]"}
     assert "etc/passwd" not in caplog.text
+
+
+async def test_authorization_denial_is_audited_distinctly(caplog):
+    from fastmcp import FastMCP
+
+    from arrowhead.authz.enforce import AuthorizationError
+    from arrowhead.observability.audit_log import AuditLogMiddleware
+
+    mcp = FastMCP("audit-authz", middleware=[AuditLogMiddleware()])
+
+    @mcp.tool
+    def guarded(target: str) -> str:
+        raise AuthorizationError("not authorized for this document")
+
+    with caplog.at_level(logging.INFO, logger="arrowhead.audit"):
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "guarded", {"target": "secret/plan.txt"}, raise_on_error=False
+            )
+            assert result.is_error
+
+    record = audit_records(caplog)[0]
+    # An authorization denial is recorded as a refusal tagged with its
+    # error type, distinct from a validation refusal, and never echoes the
+    # resource value.
+    assert record["status"] == "refused"
+    assert record["error_type"] == "AuthorizationError"
+    assert "secret/plan.txt" not in caplog.text
