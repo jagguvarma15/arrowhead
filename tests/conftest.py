@@ -35,6 +35,14 @@ def jail(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def docs(tmp_path, monkeypatch):
+    """Point the document corpus at a temporary directory."""
+    monkeypatch.setenv("ARROWHEAD_DOCS_ROOT", str(tmp_path))
+    get_settings.cache_clear()
+    return tmp_path
+
+
+@pytest.fixture
 def stdio_transport():
     """Mark the current context as stdio so scoped tools are visible.
 
