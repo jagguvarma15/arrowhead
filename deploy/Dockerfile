@@ -1,8 +1,10 @@
 # Multi-stage build: dependencies resolved with uv in the builder, then a
-# slim runtime image that runs as a non-root user.
-FROM python:3.12-slim AS builder
+# slim runtime image that runs as a non-root user. Base images are pinned
+# by digest so a rebuild is reproducible and cannot silently pull a
+# different image behind the tag.
+FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de AS builder
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.2 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.2@sha256:c4f5de312ee66d46810635ffc5df34a1973ba753e7241ce3a08ef979ddd7bea5 /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -21,7 +23,7 @@ COPY README.md ./
 RUN uv sync --frozen --no-dev
 
 
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de AS runtime
 
 # Unprivileged user; the app never needs root.
 RUN groupadd --system arrowhead \

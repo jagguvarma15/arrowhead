@@ -60,7 +60,7 @@ class InMemoryTokenBucketStore:
         return None
 
 
-_TOKEN_BUCKET_LUA = """
+_BUCKET_LUA_SCRIPT = """
 local capacity = tonumber(ARGV[1])
 local refill = tonumber(ARGV[2])
 local now = tonumber(ARGV[3])
@@ -87,7 +87,7 @@ class RedisTokenBucketStore:
 
     def __init__(self, client, clock=time.time) -> None:
         self._client = client
-        self._script = client.register_script(_TOKEN_BUCKET_LUA)
+        self._script = client.register_script(_BUCKET_LUA_SCRIPT)
         self._clock = clock
 
     async def acquire(
