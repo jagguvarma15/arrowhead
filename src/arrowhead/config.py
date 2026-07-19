@@ -44,10 +44,14 @@ class Settings(BaseSettings):
     # auth: OAuth 2.1 resource server. Off only for local stdio use.
     # TLS is terminated by the hosting platform or reverse proxy.
     auth_enabled: bool = False
+    # "jwt" verifies against any issuer's key material (bring-your-own-IdP);
+    # "workos" wires WorkOS AuthKit, which is purpose-built for MCP.
+    oauth_provider: Literal["jwt", "workos"] = "jwt"
     oauth_issuer: str | None = None
     oauth_audience: str | None = None
     oauth_jwks_uri: str | None = None
     oauth_public_key: str | None = None
+    oauth_authkit_domain: str | None = None
     server_public_url: str | None = None
 
     # per-resource authorization policy for the document tools, as a JSON
