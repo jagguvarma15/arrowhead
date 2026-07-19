@@ -13,6 +13,8 @@ REGISTERED_TOOLS = {
     "read_file",
     "doc_search",
     "doc_read",
+    "doc_retrieve",
+    "doc_scan",
 }
 
 
