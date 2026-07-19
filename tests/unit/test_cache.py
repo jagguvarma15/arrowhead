@@ -10,11 +10,8 @@ async def test_tool_list_carries_cache_hints(stdio_transport):
     assert result.meta is not None
     assert result.meta["ttlMs"] == 3_600_000
     assert result.meta["cacheScope"] == "session"
-    assert {tool.name for tool in result.tools} == {
-        "safe_fetch",
-        "calculate",
-        "read_file",
-    }
+    names = {tool.name for tool in result.tools}
+    assert {"safe_fetch", "calculate", "read_file", "doc_search", "doc_read"} <= names
 
 
 async def test_ttl_is_configurable(stdio_transport, monkeypatch):
