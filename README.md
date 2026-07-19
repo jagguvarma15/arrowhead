@@ -38,7 +38,7 @@ In another terminal, point the Inspector at it:
 npx @modelcontextprotocol/inspector uv run python -m arrowhead.server
 ```
 
-Auth is off in this mode, so all three tools are immediately callable. Try
+Auth is off in this mode, so every tool is immediately callable. Try
 `calculate` with `2 * (3 + 4)`, or `read_file` with `welcome.txt` (a sample
 file lives in `sandbox/`).
 
@@ -67,6 +67,34 @@ the network, and every failure is a controlled error rather than a crash.
   configured jail root. `../../etc/passwd` is refused; a symlink inside the
   jail that points outside it is refused.
 
+### Document suite
+
+A second group of tools operates over a jailed corpus of JSON, Markdown, and
+plain-text documents. Content returned to the caller is treated as untrusted
+data: it is sanitized per format (JSON parsed under strict bounds, Markdown
+stripped of HTML and image-exfiltration vectors, text stripped of ANSI and
+invisible characters) and wrapped in provenance so a client can present it as
+data rather than instructions.
+
+| Tool | Scope | Purpose |
+|---|---|---|
+| `doc_search(query, path_prefix, use_regex)` | `docs:search` | Bounded, read-filtered search; literal by default, regex opt-in behind a ReDoS-resistant engine |
+| `doc_read(path)` | `docs:read` | Read one corpus document, format-aware and sanitized |
+| `doc_retrieve(url)` | `docs:read` | Fetch an external document, SSRF-guarded and sanitized |
+| `doc_scan(path_prefix)` | `docs:scan` | Detect secrets and PII, reporting redacted placeholders, never raw values |
+| `doc_write(path, content, overwrite)` | `docs:write` | Create or (with confirmation) overwrite a document via an atomic, no-clobber write |
+
+### Authorization
+
+Scopes are split by verb, and a scope is necessary but not sufficient: every
+document call also passes a server-side per-resource check. The default policy
+lets any authenticated caller search, read, and scan the corpus, but write only
+within its own `<subject>/` namespace, so cross-subject writes are denied. The
+policy is a small JSON grant list (`ARROWHEAD_AUTHZ_POLICY`) whose interface is
+designed so an external engine (OPA, Cedar) can replace it later. Overwriting an
+existing document is destructive and requests human confirmation via MCP
+elicitation.
+
 ## Configuration
 
 Every setting is an environment variable with the `ARROWHEAD_` prefix; see
@@ -79,6 +107,8 @@ essentials:
 | `ARROWHEAD_AUTH_ENABLED` | Turn on OAuth 2.1 verification | `false` |
 | `ARROWHEAD_OAUTH_ISSUER` / `_AUDIENCE` / `_JWKS_URI` | Authorization server details | — |
 | `ARROWHEAD_JAIL_ROOT` | Directory `read_file` may read from | `sandbox` |
+| `ARROWHEAD_DOCS_ROOT` | Corpus directory the `doc_*` tools operate on | `documents` |
+| `ARROWHEAD_AUTHZ_POLICY` | Per-resource authorization grants (JSON) | safe default |
 | `ARROWHEAD_REDIS_URL` | Shared rate-limit store across replicas | — |
 | `ARROWHEAD_DISABLED_TOOLS` | Kill switch: comma-separated tool names | — |
 
