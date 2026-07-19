@@ -50,6 +50,39 @@ class TestRedisStore:
         clock.now += 1.0
         assert await store.acquire("k", 2, 1.0)
 
+    async def test_is_healthy_and_aclose(self):
+        client = fakeredis.aioredis.FakeRedis()
+        store = RedisTokenBucketStore(client)
+        assert await store.is_healthy() is True
+        await store.aclose()
+
+
+class TestMiddlewareLifecycle:
+    class RecordingStore:
+        def __init__(self):
+            self.closed = False
+
+        async def acquire(self, key, capacity, refill_per_second):
+            return True
+
+        async def is_healthy(self):
+            return True
+
+        async def aclose(self):
+            self.closed = True
+
+    async def test_backend_healthy_and_aclose_delegate(self):
+        store = self.RecordingStore()
+        middleware = RateLimitMiddleware(store, {})
+        assert await middleware.backend_healthy() is True
+        await middleware.aclose()
+        assert store.closed is True
+
+    async def test_in_memory_backend_is_healthy_and_closes_cleanly(self):
+        store = InMemoryTokenBucketStore(clock=Clock())
+        assert await store.is_healthy() is True
+        await store.aclose()
+
 
 def limited_server(limit: int) -> FastMCP:
     mcp = FastMCP(

@@ -29,6 +29,10 @@ class TokenBucketStore(Protocol):
         self, key: str, capacity: float, refill_per_second: float
     ) -> bool: ...
 
+    async def is_healthy(self) -> bool: ...
+
+    async def aclose(self) -> None: ...
+
 
 class InMemoryTokenBucketStore:
     """Token buckets in process memory. Limits apply per replica."""
@@ -48,6 +52,12 @@ class InMemoryTokenBucketStore:
             tokens -= 1
         self._buckets[key] = (tokens, now)
         return allowed
+
+    async def is_healthy(self) -> bool:
+        return True
+
+    async def aclose(self) -> None:
+        return None
 
 
 _TOKEN_BUCKET_LUA = """
@@ -76,6 +86,7 @@ class RedisTokenBucketStore:
     """
 
     def __init__(self, client, clock=time.time) -> None:
+        self._client = client
         self._script = client.register_script(_TOKEN_BUCKET_LUA)
         self._clock = clock
 
@@ -87,6 +98,15 @@ class RedisTokenBucketStore:
             args=[capacity, refill_per_second, self._clock()],
         )
         return bool(allowed)
+
+    async def is_healthy(self) -> bool:
+        try:
+            return bool(await self._client.ping())
+        except Exception:
+            return False
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
 
 class RateLimitMiddleware(Middleware):
@@ -119,6 +139,14 @@ class RateLimitMiddleware(Middleware):
                     f"{limit} calls per minute; retry shortly"
                 )
         return await call_next(context)
+
+    async def backend_healthy(self) -> bool:
+        """Whether the bucket store is reachable, for readiness checks."""
+        return await self._store.is_healthy()
+
+    async def aclose(self) -> None:
+        """Release the bucket store's resources on shutdown."""
+        await self._store.aclose()
 
 
 def build_rate_limit_middleware(settings: Settings) -> RateLimitMiddleware | None:
