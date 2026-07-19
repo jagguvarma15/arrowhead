@@ -139,6 +139,14 @@ class Settings(BaseSettings):
     # process anyway
     tool_list_ttl_ms: int = 3_600_000
 
+    # OpenTelemetry export. Spans and metrics are no-ops unless an OTLP
+    # endpoint is set, so telemetry costs nothing until it is configured.
+    # Headers are comma-separated key=value pairs (e.g. for a collector API
+    # key). Audit logs are always emitted as JSON to stdout regardless.
+    otel_exporter_otlp_endpoint: str | None = None
+    otel_exporter_otlp_headers: str | None = None
+    otel_service_name: str = "arrowhead"
+
     def rate_limits_per_minute(self) -> dict[str, int]:
         """Explicit per-tool ceilings. Tools absent here fall back to
         default_tool_per_minute in the rate-limit middleware, so no tool is
