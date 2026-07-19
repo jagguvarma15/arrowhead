@@ -81,6 +81,22 @@ def validate_search_query(
     return query
 
 
+def validate_write_content(content: str, *, max_bytes: int) -> str:
+    """Validate content bound for a document write.
+
+    Requires a string free of null bytes and within the byte cap. Format
+    validity (valid JSON, and so on) is checked by the write tool, and the
+    store enforces the size cap again at write time.
+    """
+    if not isinstance(content, str):
+        raise ValidationError("content must be a string")
+    if "\x00" in content:
+        raise ValidationError("content contains a null byte")
+    if len(content.encode("utf-8")) > max_bytes:
+        raise ValidationError(f"content exceeds {max_bytes} bytes")
+    return content
+
+
 DEFAULT_DOC_EXTENSIONS = frozenset({".json", ".md", ".txt"})
 
 
