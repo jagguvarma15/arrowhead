@@ -49,6 +49,16 @@ _ANNOTATIONS = {
         "destructiveHint": False,
         "openWorldHint": False,
     },
+    # doc_write is the only mutating tool. It is marked destructive because
+    # it can overwrite: annotations are honest so a client can gate on them,
+    # though enforcement lives in scopes and per-resource authorization, not
+    # in the hints (clients must treat annotations as untrusted).
+    "doc_write": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
 }
 
 
@@ -58,6 +68,7 @@ def register_tools(mcp: FastMCP, *, enforce_scopes: bool = True) -> None:
     from arrowhead.tools.doc_retrieve import doc_retrieve
     from arrowhead.tools.doc_scan import doc_scan
     from arrowhead.tools.doc_search import doc_search
+    from arrowhead.tools.doc_write import doc_write
     from arrowhead.tools.read_file import read_file
     from arrowhead.tools.safe_fetch import safe_fetch
 
@@ -69,6 +80,7 @@ def register_tools(mcp: FastMCP, *, enforce_scopes: bool = True) -> None:
         "doc_read": doc_read,
         "doc_retrieve": doc_retrieve,
         "doc_scan": doc_scan,
+        "doc_write": doc_write,
     }
     for name, function in functions.items():
         mcp.tool(
