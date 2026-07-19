@@ -29,11 +29,20 @@ ACTION_WRITE = "write"
 SUBJECT_TOKEN = "${subject}"
 
 
+# Resource kinds. A point resource is one concrete document; a prefix
+# resource is a range query (search, scan) over documents under a path; a
+# URL resource is an external address, controlled by the SSRF guard rather
+# than by path scoping.
+KIND_DOCUMENT = "document"
+KIND_PREFIX = "prefix"
+KIND_URL = "url"
+
+
 @dataclass(frozen=True)
 class Resource:
-    """The concrete target of an action: a corpus document or a URL."""
+    """The target of an action: a document, a path prefix, or a URL."""
 
-    kind: str  # "document" or "url"
+    kind: str
     identifier: str
 
 
@@ -54,21 +63,21 @@ class Grant:
             return False
         if "*" not in self.actions and action not in self.actions:
             return False
-        if resource.kind != "document":
-            # Non-document resources (URLs) are not path-scoped; a subject
-            # and action match is enough. The SSRF guard is the resource
-            # control there.
+        if resource.kind == KIND_URL:
+            # URLs are not path-scoped; a subject and action match is enough.
+            # The SSRF guard is the resource control there.
             return True
         expanded = self.prefix.replace(SUBJECT_TOKEN, subject)
-        if action == ACTION_SEARCH:
-            # Search is a range action: the requested area is allowed if it
+        if resource.kind == KIND_PREFIX:
+            # A range query (search, scan) is allowed if the requested area
             # overlaps a granted area (either contains or is contained by
-            # it). The per-document read filter then restricts which matches
-            # are actually returned, so an overlap can never leak an
-            # unreadable document.
+            # it). The per-document filter then restricts which documents are
+            # actually touched, so an overlap can never leak one the caller
+            # may not access.
             return resource.identifier.startswith(
                 expanded
             ) or expanded.startswith(resource.identifier)
+        # A point resource (one document) must sit under a granted prefix.
         return resource.identifier.startswith(expanded)
 
 
