@@ -88,6 +88,14 @@ class Settings(BaseSettings):
     search_max_total_bytes: int = 200_000
     search_snippet_max_chars: int = 200
 
+    # doc_scan: secrets and PII detection. Findings report a type and a
+    # redacted placeholder, never the raw value. Traversal is bounded and
+    # large files are skipped.
+    scan_max_files: int = 2000
+    scan_per_file_max_bytes: int = 1_000_000
+    scan_timeout_seconds: float = 10.0
+    scan_max_findings: int = 200
+
     # safe_fetch
     fetch_timeout_seconds: float = 10.0
     fetch_max_response_bytes: int = 1_000_000
