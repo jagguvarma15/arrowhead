@@ -61,28 +61,61 @@ Every tool argument is attacker-controlled input.
   by any authorized caller. The jail's contents are the operator's
   responsibility.
 
+### Document suite (`doc_search`, `doc_read`, `doc_retrieve`, `doc_scan`, `doc_write`)
+
+- **Inputs:** a corpus-relative path or prefix, a search query, content bytes,
+  and (for retrieve) a URL. All are attacker-controlled.
+- **Attacks considered:** indirect prompt injection via returned content;
+  Markdown image/link exfiltration and embedded HTML/script; JSON bombs (deep
+  nesting, duplicate keys, huge structures); ANSI/control/UTF-7/homoglyph text
+  injection; ReDoS from a user-supplied search pattern; path traversal and
+  symlink escape on read, scan, and write; clobbering or partially writing a
+  document; writing outside the caller's namespace; leaking a secret's raw
+  value through a scan result or log; and, on retrieve, the full SSRF set plus
+  decompression bombs.
+- **Controls:** the per-format content sanitizers and provenance wrapping; the
+  bounded, symlink-safe document store with atomic no-clobber writes and
+  quotas; scope-by-verb plus a default-deny per-resource authorization check;
+  redaction-only scan findings; a ReDoS-resistant matcher with a timeout; the
+  reused SSRF guard and decompressed-size cap on retrieve; and elicitation
+  confirmation for destructive overwrites.
+- **Residual risk:** the sanitizers are conservative transforms, not full
+  renderers; a client that renders returned Markdown must still apply its own
+  output-side controls (an image proxy, a content security policy). Search and
+  scan read document contents, so a caller with those scopes over a subtree can
+  infer the presence of matching or sensitive data within what the policy lets
+  it access.
+
 ## Cross-cutting
 
 - **Authentication:** enforced over HTTP; audience validation is mandatory and
   tokens are never forwarded. Over stdio (local development against a process
   the operator already owns) auth is skipped.
+- **Authorization:** scopes are split by verb, and the document tools add a
+  per-resource, default-deny check on top; a scope alone never grants access to
+  a specific document.
 - **Rate limiting and kill switch:** bound abuse volume and allow rapid
-  disabling of a tool without redeploying.
+  disabling of a tool without redeploying. Every tool has a ceiling; a tool
+  without an explicit one falls back to a configurable default.
 - **Audit and tracing:** provide after-the-fact accountability without leaking
-  argument values.
+  argument values; authorization denials are recorded distinctly.
 
 ## Explicitly out of scope for this version
 
-- **Multi-tenant, per-caller tool permissioning.** All authorized callers see
-  the same set of tools; there is one scope tier (`tools:read`). Fine-grained
-  per-tenant policies are not modeled.
-- **Write or mutating tools.** Every tool is read-only. There is no
-  `tools:write` scope in use.
-- **Output/content filtering.** Fetched bodies and file contents are returned
-  as-is (size-capped). Scanning returned content for secrets or malware is not
-  attempted.
+- **Full multi-tenant isolation.** The per-resource policy demonstrates
+  per-subject write namespaces and prefix grants, but there is no tenant
+  boundary beyond the subject claim, no per-document ACL store, and no external
+  policy engine wired in (the `Authorizer` seam exists for one).
+- **Output-side rendering controls.** Returned content is sanitized at the
+  server, but a client that renders it must still apply its own image proxy and
+  content security policy; the server cannot enforce those.
+- **Content classification beyond secrets/PII patterns.** `doc_scan` uses a
+  fixed pattern set; it is not a comprehensive DLP or malware scanner.
 - **TLS termination.** Delegated to the hosting platform or a reverse proxy.
 - **Authorization-server security.** Token issuance, client registration, and
   key rotation belong to the external IdP, not to this server.
+- **Tool-definition pinning / rug-pull detection.** The server sets honest
+  annotations but does not yet expose a pinned tool-definition hash for clients
+  to re-consent against.
 - **Denial of service beyond per-caller rate limits.** Network-level flood
   protection is the platform's job.
