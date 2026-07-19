@@ -181,12 +181,15 @@ still served.
   limits hold across replicas. Exceeding a limit is a clean error, not a crash.
 - **Kill switch** (`security/kill_switch.py`): any tool can be taken out of
   service through configuration without a code change.
-- **Audit log** (`observability/audit_log.py`): one structured line per call
-  with caller identity, tool, argument *shapes* (never values), status, and
-  latency. Redaction happens at the source, so secrets in arguments never
-  reach log storage.
-- **Tracing** (`observability/tracing.py`): an OpenTelemetry span per call that
-  joins the caller's W3C trace context.
+- **Audit log** (`observability/audit_log.py`): one structured JSON line per
+  call on stdout with caller identity, tool, argument *shapes* (never values),
+  status, and latency, for the platform's log drain. Redaction happens at the
+  source, so secrets in arguments never reach log storage.
+- **Tracing and metrics** (`observability/tracing.py`, `telemetry.py`,
+  `metrics.py`): an OpenTelemetry span per call that joins the caller's W3C
+  trace context, plus tool-call and duration metrics. Both export over OTLP/HTTP
+  when `ARROWHEAD_OTEL_EXPORTER_OTLP_ENDPOINT` is set and are no-ops otherwise,
+  so telemetry costs nothing until a collector is configured.
 
 ## Transport security
 
