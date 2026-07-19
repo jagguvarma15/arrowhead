@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     # doc_write limits: per-document size and a total-corpus quota.
     doc_write_max_bytes: int = 1_000_000
     doc_write_quota_bytes: int = 50_000_000
+    # Overwriting an existing document requests human confirmation via
+    # elicitation. When the client cannot elicit, the caller's explicit
+    # overwrite flag stands in as the opt-in.
+    require_write_confirmation: bool = True
 
     # content hardening caps applied to returned document content
     content_max_bytes: int = 1_000_000
