@@ -91,16 +91,23 @@ class RedisTokenBucketStore:
 
 class RateLimitMiddleware(Middleware):
     def __init__(
-        self, store: TokenBucketStore, limits_per_minute: dict[str, int]
+        self,
+        store: TokenBucketStore,
+        limits_per_minute: dict[str, int],
+        *,
+        default_per_minute: int = 0,
     ) -> None:
         self._store = store
         self._limits = limits_per_minute
+        self._default = default_per_minute
 
     async def on_call_tool(
         self, context: MiddlewareContext, call_next: CallNext
     ):
         tool_name = context.message.name
-        limit = self._limits.get(tool_name)
+        # A tool without an explicit ceiling falls back to the default, so
+        # a newly added tool is never accidentally left unlimited.
+        limit = self._limits.get(tool_name, self._default)
         if limit is not None and limit > 0:
             key = f"{caller_identity()}:{tool_name}"
             allowed = await self._store.acquire(
@@ -125,4 +132,8 @@ def build_rate_limit_middleware(settings: Settings) -> RateLimitMiddleware | Non
         )
     else:
         store = InMemoryTokenBucketStore()
-    return RateLimitMiddleware(store, settings.rate_limits_per_minute())
+    return RateLimitMiddleware(
+        store,
+        settings.rate_limits_per_minute(),
+        default_per_minute=settings.default_tool_per_minute,
+    )
