@@ -26,7 +26,7 @@ ACTION_WRITE = "write"
 # A grant prefix may contain this token, expanded to the requesting
 # subject before matching, so one rule can scope every caller to its own
 # namespace (e.g. prefix "${subject}/").
-SUBJECT_TOKEN = "${subject}"
+SUBJECT_TOKEN = "${subject}"  # noqa: S105  # a path template token, not a secret
 
 
 # Resource kinds. A point resource is one concrete document; a prefix
