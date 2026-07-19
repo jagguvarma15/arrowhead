@@ -7,6 +7,15 @@ services:
     dockerfilePath: deploy/Dockerfile
     dockerContext: .
     plan: starter
+    # A persistent disk makes the document corpus durable across deploys.
+    # Attaching a disk pins the service to a single instance, so the
+    # write corpus stays consistent; horizontal scale would need an
+    # object-storage backing (see the roadmap).
+    numInstances: 1
+    disk:
+      name: arrowhead-corpus
+      mountPath: /var/lib/arrowhead/documents
+      sizeGB: 1
     # Unauthenticated liveness probe; /mcp requires a bearer token.
     healthCheckPath: /health
     envVars:
@@ -16,6 +25,8 @@ services:
         value: 0.0.0.0
       - key: ARROWHEAD_PORT
         value: "8000"
+      - key: ARROWHEAD_DOCS_ROOT
+        value: /var/lib/arrowhead/documents
       - key: ARROWHEAD_AUTH_ENABLED
         value: "true"
       # Set these to your authorization server and this service's public
