@@ -13,7 +13,13 @@ import anyio
 from fastmcp.exceptions import ToolError
 
 from arrowhead.authz.enforce import authorize_action, get_authorizer
-from arrowhead.authz.policy import ACTION_READ, ACTION_SEARCH, Resource
+from arrowhead.authz.policy import (
+    ACTION_READ,
+    ACTION_SEARCH,
+    KIND_DOCUMENT,
+    KIND_PREFIX,
+    Resource,
+)
 from arrowhead.config import get_settings
 from arrowhead.content.markdown_safe import sanitize_markdown
 from arrowhead.content.provenance import UNTRUSTED_NOTICE
@@ -49,7 +55,7 @@ async def doc_search(
         raise ToolError("regex search is disabled")
 
     subject = authorize_action(
-        ACTION_SEARCH, Resource(kind="document", identifier=path_prefix)
+        ACTION_SEARCH, Resource(kind=KIND_PREFIX, identifier=path_prefix)
     )
 
     try:
@@ -80,7 +86,7 @@ def _run_search(query, path_prefix, use_regex, subject, settings) -> dict:
         if path_prefix and not info.path.startswith(path_prefix):
             continue
         if not authorizer.authorize(
-            subject, ACTION_READ, Resource(kind="document", identifier=info.path)
+            subject, ACTION_READ, Resource(kind=KIND_DOCUMENT, identifier=info.path)
         ).allowed:
             continue
         try:

@@ -56,6 +56,23 @@ def test_url_resources_ignore_prefix():
     assert policy.authorize("alice", ACTION_READ, url).allowed
 
 
+def prefix(identifier):
+    return Resource(kind="prefix", identifier=identifier)
+
+
+def test_prefix_query_allowed_when_area_overlaps_grant():
+    policy = JailPolicy([Grant("*", frozenset({ACTION_SEARCH}), "public/")])
+    # requesting the whole corpus overlaps a grant on public/
+    assert policy.authorize("alice", ACTION_SEARCH, prefix("")).allowed
+    # requesting inside the granted area is allowed
+    assert policy.authorize("alice", ACTION_SEARCH, prefix("public/sub")).allowed
+
+
+def test_prefix_query_denied_when_area_disjoint_from_grant():
+    policy = JailPolicy([Grant("*", frozenset({ACTION_SCAN}), "public/")])
+    assert not policy.authorize("alice", ACTION_SCAN, prefix("secret/")).allowed
+
+
 def test_parse_policy_round_trip():
     raw = (
         '{"grants": [{"subject": "alice", "actions": ["read", "write"], '
