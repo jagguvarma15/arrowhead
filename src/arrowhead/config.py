@@ -54,6 +54,22 @@ class Settings(BaseSettings):
     jail_root: Path = Path("sandbox")
     read_file_max_bytes: int = 1_000_000
 
+    # documents corpus: the jailed root the doc_* tools operate on. It is
+    # write-capable, so it is kept separate from the read-only read_file
+    # sandbox. Only these extensions are treated as documents.
+    docs_root: Path = Path("documents")
+    doc_max_bytes: int = 1_000_000
+    doc_allowed_extensions: str = ".json,.md,.txt"
+
+    # doc_write limits: per-document size and a total-corpus quota.
+    doc_write_max_bytes: int = 1_000_000
+    doc_write_quota_bytes: int = 50_000_000
+
+    # content hardening caps applied to returned document content
+    content_max_bytes: int = 1_000_000
+    json_max_depth: int = 64
+    json_max_elements: int = 100_000
+
     # safe_fetch
     fetch_timeout_seconds: float = 10.0
     fetch_max_response_bytes: int = 1_000_000
@@ -94,6 +110,13 @@ class Settings(BaseSettings):
             for name in self.disabled_tools.split(",")
             if name.strip()
         }
+
+    def doc_allowed_extension_set(self) -> frozenset[str]:
+        return frozenset(
+            ext.strip().lower()
+            for ext in self.doc_allowed_extensions.split(",")
+            if ext.strip()
+        )
 
 
 @lru_cache

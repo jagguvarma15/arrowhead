@@ -58,3 +58,23 @@ def validate_relative_path(path: str) -> str:
     if any(part == ".." for part in candidate.parts):
         raise ValidationError("path may not contain parent-directory components")
     return path
+
+
+DEFAULT_DOC_EXTENSIONS = frozenset({".json", ".md", ".txt"})
+
+
+def validate_document_path(
+    path: str, *, allowed_extensions: frozenset[str] = DEFAULT_DOC_EXTENSIONS
+) -> str:
+    """Validate a corpus-relative document path with an extension allowlist.
+
+    Builds on validate_relative_path (relative, no parent components, no
+    null byte, length cap) and additionally requires a recognized document
+    extension, so only .json / .md / .txt files can be addressed.
+    """
+    validate_relative_path(path)
+    suffix = PurePosixPath(path).suffix.lower()
+    if suffix not in allowed_extensions:
+        allowed = ", ".join(sorted(allowed_extensions))
+        raise ValidationError(f"document extension must be one of: {allowed}")
+    return path

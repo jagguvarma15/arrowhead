@@ -3,6 +3,7 @@ import pytest
 from arrowhead.security.input_validation import (
     ValidationError,
     validate_arithmetic_expression,
+    validate_document_path,
     validate_relative_path,
     validate_url,
 )
@@ -69,3 +70,32 @@ class TestRelativePath:
     def test_traversal_shapes_rejected(self, payload):
         with pytest.raises(ValidationError):
             validate_relative_path(payload)
+
+
+class TestDocumentPath:
+    @pytest.mark.parametrize(
+        "path", ["notes.txt", "sub/dir/data.json", "guide.md"]
+    )
+    def test_allowed_documents_accepted(self, path):
+        assert validate_document_path(path) == path
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "../../etc/passwd.txt",
+            "secrets.env",
+            "script.sh",
+            "archive.zip",
+            "noextension",
+            "config.yaml",
+        ],
+    )
+    def test_disallowed_or_traversal_rejected(self, path):
+        with pytest.raises(ValidationError):
+            validate_document_path(path)
+
+    def test_custom_extension_allowlist(self):
+        allowed = frozenset({".csv"})
+        assert validate_document_path("data.csv", allowed_extensions=allowed)
+        with pytest.raises(ValidationError):
+            validate_document_path("data.txt", allowed_extensions=allowed)
