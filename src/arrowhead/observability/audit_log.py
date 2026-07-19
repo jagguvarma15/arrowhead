@@ -14,6 +14,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from arrowhead.auth.identity import caller_identity
+from arrowhead.observability.metrics import record_tool_call
 
 logger = logging.getLogger("arrowhead.audit")
 
@@ -53,14 +54,16 @@ class AuditLogMiddleware(Middleware):
         else:
             return result
         finally:
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
             record = {
                 "event": "tool_call",
                 "caller": caller_identity(),
                 "tool": message.name,
                 "arguments": describe_arguments(message.arguments),
                 "status": status,
-                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                "duration_ms": duration_ms,
             }
             if error_type is not None:
                 record["error_type"] = error_type
             logger.info(json.dumps(record, sort_keys=True))
+            record_tool_call(message.name, status, duration_ms)
