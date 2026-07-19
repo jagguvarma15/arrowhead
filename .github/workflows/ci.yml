@@ -33,6 +33,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks can scan every commit, not a shallow clone.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
