@@ -4,7 +4,12 @@ from fastmcp.server.elicitation import (
     DeclinedElicitation,
 )
 
-from arrowhead.authz.confirmation import request_confirmation
+from arrowhead.authz.confirmation import (
+    CONFIRM_ACCEPTED,
+    CONFIRM_DECLINED,
+    CONFIRM_UNAVAILABLE,
+    request_confirmation,
+)
 
 
 class FakeContext:
@@ -17,25 +22,25 @@ class FakeContext:
         return self._result
 
 
-async def test_accepted_confirmation_returns_true():
+async def test_accepted_confirmation():
     ctx = FakeContext(AcceptedElicitation(data=None))
-    assert await request_confirmation(ctx, "overwrite?") is True
+    assert await request_confirmation(ctx, "overwrite?") == CONFIRM_ACCEPTED
 
 
-async def test_declined_returns_false():
+async def test_declined_confirmation():
     ctx = FakeContext(DeclinedElicitation())
-    assert await request_confirmation(ctx, "overwrite?") is False
+    assert await request_confirmation(ctx, "overwrite?") == CONFIRM_DECLINED
 
 
-async def test_cancelled_returns_false():
+async def test_cancelled_is_declined():
     ctx = FakeContext(CancelledElicitation())
-    assert await request_confirmation(ctx, "overwrite?") is False
+    assert await request_confirmation(ctx, "overwrite?") == CONFIRM_DECLINED
 
 
-async def test_client_without_elicitation_returns_false():
+async def test_client_without_elicitation_is_unavailable():
     ctx = FakeContext(RuntimeError("elicitation not supported"))
-    assert await request_confirmation(ctx, "overwrite?") is False
+    assert await request_confirmation(ctx, "overwrite?") == CONFIRM_UNAVAILABLE
 
 
-async def test_missing_context_returns_false():
-    assert await request_confirmation(None, "overwrite?") is False
+async def test_missing_context_is_unavailable():
+    assert await request_confirmation(None, "overwrite?") == CONFIRM_UNAVAILABLE

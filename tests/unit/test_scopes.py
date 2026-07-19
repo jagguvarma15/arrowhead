@@ -15,6 +15,7 @@ REGISTERED_TOOLS = {
     "doc_read",
     "doc_retrieve",
     "doc_scan",
+    "doc_write",
 }
 
 

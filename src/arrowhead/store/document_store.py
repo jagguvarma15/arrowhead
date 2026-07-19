@@ -84,6 +84,10 @@ class DocumentStore:
             )
         return data
 
+    def exists(self, relative_path: str) -> bool:
+        """Return whether a document exists at the path (jailed)."""
+        return self._resolve(relative_path).is_file()
+
     def stat(self, relative_path: str) -> DocumentInfo:
         """Return metadata for a document without reading its contents."""
         resolved = self._resolve(relative_path)
