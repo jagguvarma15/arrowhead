@@ -136,15 +136,20 @@ src/arrowhead/
                            | HTTP
                            v
                  +-------------------+        +-----------+
-                 |  arrowhead (N x)  | <----> |   Redis   |  (rate-limit buckets)
-                 |  stateless HTTP   |        +-----------+
+                 |     arrowhead     | <----> |   Redis   |  (rate-limit buckets)
+                 |   HTTP + disk     |        +-----------+
                  +-------------------+
-                           |
-                           v
-                 external OAuth 2.1 authorization server
-                 (token issuance, JWKS)
+                    |            |
+                    v            v
+        persistent disk     external OAuth 2.1
+        (document corpus)   authorization server (JWKS)
 ```
 
-Because the server is stateless, `N` replicas run behind the platform's load
-balancer with no coordination beyond the shared Redis. See `deploy/` for the
+The request path itself is stateless — any instance can serve any request,
+and the rate-limit buckets live in shared Redis. The one piece of durable
+local state is the write-capable document corpus, which is backed by a
+persistent disk. Because a disk attaches to a single instance, the reference
+deployment runs **one** instance so the corpus stays consistent; scaling the
+write corpus horizontally means moving it behind object storage (a roadmap
+item) so the request tier can again run many replicas. See `deploy/` for the
 container image and the Render and Fly.io blueprints.
