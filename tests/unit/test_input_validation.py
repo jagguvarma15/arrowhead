@@ -7,6 +7,7 @@ from arrowhead.security.input_validation import (
     validate_relative_path,
     validate_search_query,
     validate_url,
+    validate_write_content,
 )
 
 
@@ -114,3 +115,20 @@ class TestSearchQuery:
     def test_overlong_query_rejected(self):
         with pytest.raises(ValidationError):
             validate_search_query("a" * 50, max_length=10)
+
+
+class TestWriteContent:
+    def test_normal_content_accepted(self):
+        assert validate_write_content("hello", max_bytes=100) == "hello"
+
+    def test_null_byte_rejected(self):
+        with pytest.raises(ValidationError):
+            validate_write_content("a\x00b", max_bytes=100)
+
+    def test_non_string_rejected(self):
+        with pytest.raises(ValidationError):
+            validate_write_content(b"bytes", max_bytes=100)
+
+    def test_oversized_rejected(self):
+        with pytest.raises(ValidationError):
+            validate_write_content("x" * 50, max_bytes=8)
