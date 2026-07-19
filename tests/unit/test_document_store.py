@@ -117,6 +117,21 @@ def test_list_skips_escaping_symlink(tmp_path, tmp_path_factory):
     assert {info.path for info in store.list()} == {"real.txt"}
 
 
+def test_exists_reports_presence(tmp_path):
+    (tmp_path / "here.txt").write_text("x")
+    store = make_store(tmp_path)
+    assert store.exists("here.txt") is True
+    assert store.exists("missing.txt") is False
+
+
+def test_exists_is_jailed(tmp_path):
+    from arrowhead.store.document_store import DocumentStoreError
+
+    store = make_store(tmp_path)
+    with pytest.raises(DocumentStoreError):
+        store.exists("../outside.txt")
+
+
 def test_stat_reports_metadata(tmp_path):
     (tmp_path / "doc.json").write_text("{}")
     store = make_store(tmp_path)
