@@ -12,6 +12,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pydantic-settings>=2.14.2",
     "redis>=8.0.1",
+    "regex>=2026.7.19",
 ]
 
 [build-system]

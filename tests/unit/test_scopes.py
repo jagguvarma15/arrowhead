@@ -7,7 +7,13 @@ from arrowhead.tools.registry import register_tools
 
 # The tools register_tools currently wires up. TOOL_SCOPES also carries
 # entries for tools added in later phases, so registered tools are a subset.
-REGISTERED_TOOLS = {"safe_fetch", "calculate", "read_file"}
+REGISTERED_TOOLS = {
+    "safe_fetch",
+    "calculate",
+    "read_file",
+    "doc_search",
+    "doc_read",
+}
 
 
 async def test_tools_hidden_without_credentials_and_visible_on_stdio():

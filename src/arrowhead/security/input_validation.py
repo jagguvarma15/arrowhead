@@ -60,6 +60,27 @@ def validate_relative_path(path: str) -> str:
     return path
 
 
+MAX_SEARCH_QUERY_LENGTH = 200
+
+
+def validate_search_query(
+    query: str, *, max_length: int = MAX_SEARCH_QUERY_LENGTH
+) -> str:
+    """Bound the length and shape of a search query before matching.
+
+    The literal-vs-regex mode and the ReDoS guard are enforced by the
+    matcher; this validator only checks the query is a bounded, non-empty
+    string free of null bytes.
+    """
+    if not isinstance(query, str) or not query.strip():
+        raise ValidationError("query must be a non-empty string")
+    if len(query) > max_length:
+        raise ValidationError(f"query exceeds {max_length} characters")
+    if "\x00" in query:
+        raise ValidationError("query contains a null byte")
+    return query
+
+
 DEFAULT_DOC_EXTENSIONS = frozenset({".json", ".md", ".txt"})
 
 

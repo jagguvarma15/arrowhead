@@ -77,6 +77,17 @@ class Settings(BaseSettings):
     json_max_depth: int = 64
     json_max_elements: int = 100_000
 
+    # doc_search. Regex is off by default because it is a denial-of-service
+    # surface; when enabled it runs through a ReDoS-resistant engine with a
+    # hard timeout. Results and aggregate snippet bytes are bounded.
+    search_query_max_length: int = 200
+    search_regex_enabled: bool = False
+    search_regex_timeout_ms: int = 250
+    search_max_files: int = 2000
+    search_max_results: int = 50
+    search_max_total_bytes: int = 200_000
+    search_snippet_max_chars: int = 200
+
     # safe_fetch
     fetch_timeout_seconds: float = 10.0
     fetch_max_response_bytes: int = 1_000_000

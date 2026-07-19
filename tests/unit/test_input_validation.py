@@ -5,6 +5,7 @@ from arrowhead.security.input_validation import (
     validate_arithmetic_expression,
     validate_document_path,
     validate_relative_path,
+    validate_search_query,
     validate_url,
 )
 
@@ -99,3 +100,17 @@ class TestDocumentPath:
         assert validate_document_path("data.csv", allowed_extensions=allowed)
         with pytest.raises(ValidationError):
             validate_document_path("data.txt", allowed_extensions=allowed)
+
+
+class TestSearchQuery:
+    def test_normal_query_accepted(self):
+        assert validate_search_query("deadline") == "deadline"
+
+    @pytest.mark.parametrize("payload", ["", "   ", "with\x00null"])
+    def test_bad_queries_rejected(self, payload):
+        with pytest.raises(ValidationError):
+            validate_search_query(payload)
+
+    def test_overlong_query_rejected(self):
+        with pytest.raises(ValidationError):
+            validate_search_query("a" * 50, max_length=10)

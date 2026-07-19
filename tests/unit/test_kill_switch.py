@@ -12,7 +12,8 @@ async def test_disabled_tool_is_hidden_and_refused(
 
     async with Client(create_server()) as client:
         tools = {tool.name for tool in await client.list_tools()}
-        assert tools == {"calculate", "read_file"}
+        assert "safe_fetch" not in tools
+        assert {"calculate", "read_file"} <= tools
 
         result = await client.call_tool(
             "safe_fetch",
