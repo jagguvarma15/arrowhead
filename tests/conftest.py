@@ -16,10 +16,14 @@ AUDIENCE = "https://arrowhead.test"
 
 @pytest.fixture(autouse=True)
 def fresh_settings():
-    """Settings are cached per process; tests must not leak overrides."""
+    """Settings and settings-derived caches must not leak between tests."""
+    from arrowhead.authz.enforce import get_authorizer
+
     get_settings.cache_clear()
+    get_authorizer.cache_clear()
     yield
     get_settings.cache_clear()
+    get_authorizer.cache_clear()
 
 
 @pytest.fixture

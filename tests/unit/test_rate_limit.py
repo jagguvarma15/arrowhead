@@ -89,6 +89,32 @@ async def test_exceeding_the_limit_is_a_clean_error_not_a_crash():
         assert result.content[0].text == "still up"
 
 
+async def test_unlisted_tool_falls_back_to_default_ceiling():
+    mcp = FastMCP(
+        "defaulted",
+        middleware=[
+            RateLimitMiddleware(
+                InMemoryTokenBucketStore(clock=Clock()),
+                {"echo": 5},
+                default_per_minute=1,
+            )
+        ],
+    )
+
+    @mcp.tool
+    def only(text: str) -> str:
+        return text
+
+    async with Client(mcp) as client:
+        first = await client.call_tool("only", {"text": "a"})
+        assert first.content[0].text == "a"
+        second = await client.call_tool(
+            "only", {"text": "b"}, raise_on_error=False
+        )
+        assert second.is_error
+        assert "rate limit exceeded for only" in second.content[0].text
+
+
 async def test_callers_get_separate_buckets(monkeypatch):
     mcp = limited_server(limit=1)
     identities = iter(["alice", "bob"])

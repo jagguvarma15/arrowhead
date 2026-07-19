@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     oauth_public_key: str | None = None
     server_public_url: str | None = None
 
+    # per-resource authorization policy for the document tools, as a JSON
+    # document: {"grants": [{"subject": "*", "actions": ["read"],
+    # "prefix": ""}]}. Empty uses a safe default (any caller may search,
+    # read, and scan the corpus, but write only under its own subject
+    # namespace). Ignored when auth is disabled.
+    authz_policy: str = ""
+
     # read_file: the only directory the tool may read from
     jail_root: Path = Path("sandbox")
     read_file_max_bytes: int = 1_000_000
@@ -86,6 +93,14 @@ class Settings(BaseSettings):
     safe_fetch_per_minute: int = 30
     calculate_per_minute: int = 120
     read_file_per_minute: int = 60
+    doc_search_per_minute: int = 60
+    doc_read_per_minute: int = 60
+    doc_retrieve_per_minute: int = 30
+    doc_scan_per_minute: int = 20
+    doc_write_per_minute: int = 30
+    # ceiling for any tool without an explicit limit above, so a new tool
+    # is never silently unlimited
+    default_tool_per_minute: int = 60
     redis_url: str | None = None
 
     # kill switch: comma-separated tool names to take out of service
@@ -98,10 +113,18 @@ class Settings(BaseSettings):
     tool_list_ttl_ms: int = 3_600_000
 
     def rate_limits_per_minute(self) -> dict[str, int]:
+        """Explicit per-tool ceilings. Tools absent here fall back to
+        default_tool_per_minute in the rate-limit middleware, so no tool is
+        ever accidentally left unlimited."""
         return {
             "safe_fetch": self.safe_fetch_per_minute,
             "calculate": self.calculate_per_minute,
             "read_file": self.read_file_per_minute,
+            "doc_search": self.doc_search_per_minute,
+            "doc_read": self.doc_read_per_minute,
+            "doc_retrieve": self.doc_retrieve_per_minute,
+            "doc_scan": self.doc_scan_per_minute,
+            "doc_write": self.doc_write_per_minute,
         }
 
     def disabled_tool_set(self) -> set[str]:

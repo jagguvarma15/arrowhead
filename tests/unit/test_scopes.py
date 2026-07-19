@@ -5,6 +5,10 @@ from fastmcp.server.context import _current_transport
 from arrowhead.auth.scopes import TOOL_SCOPES, scope_checks, supported_scopes
 from arrowhead.tools.registry import register_tools
 
+# The tools register_tools currently wires up. TOOL_SCOPES also carries
+# entries for tools added in later phases, so registered tools are a subset.
+REGISTERED_TOOLS = {"safe_fetch", "calculate", "read_file"}
+
 
 async def test_tools_hidden_without_credentials_and_visible_on_stdio():
     mcp = FastMCP("scope-check")
@@ -19,7 +23,11 @@ async def test_tools_hidden_without_credentials_and_visible_on_stdio():
         tools = await mcp.list_tools()
     finally:
         _current_transport.reset(reset)
-    assert {tool.name for tool in tools} == set(TOOL_SCOPES)
+    assert {tool.name for tool in tools} == REGISTERED_TOOLS
+
+
+def test_every_registered_tool_has_a_scope():
+    assert REGISTERED_TOOLS <= set(TOOL_SCOPES)
 
 
 def test_scope_checks_deny_without_token():
@@ -31,5 +39,19 @@ def test_scope_checks_deny_without_token():
         assert check(AuthContext(token=None, component=FakeComponent())) is False
 
 
-def test_supported_scopes_deduplicated():
-    assert supported_scopes() == ["tools:read"]
+def test_document_verbs_have_distinct_scopes():
+    assert TOOL_SCOPES["doc_search"] == "docs:search"
+    assert TOOL_SCOPES["doc_read"] == "docs:read"
+    assert TOOL_SCOPES["doc_retrieve"] == "docs:read"
+    assert TOOL_SCOPES["doc_scan"] == "docs:scan"
+    assert TOOL_SCOPES["doc_write"] == "docs:write"
+
+
+def test_supported_scopes_deduplicated_and_sorted():
+    assert supported_scopes() == [
+        "docs:read",
+        "docs:scan",
+        "docs:search",
+        "docs:write",
+        "tools:read",
+    ]
