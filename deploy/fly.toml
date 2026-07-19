@@ -1,7 +1,16 @@
-# Fly.io alternative to Render, useful when multi-region matters. Fly
-# terminates TLS at the edge (force_https) and forwards to the internal
-# container port. Provide a Redis via Upstash and set ARROWHEAD_REDIS_URL
-# plus the OAuth secrets with `fly secrets set`.
+# Fly.io alternative to Render. Fly terminates TLS at the edge
+# (force_https) and forwards to the internal container port.
+#
+# Before deploying:
+#   fly volumes create arrowhead_corpus --size 1   # durable document corpus
+#   fly redis create                               # managed Redis (Upstash)
+#   fly secrets set ARROWHEAD_REDIS_URL=... ARROWHEAD_OAUTH_ISSUER=... \
+#     ARROWHEAD_OAUTH_AUDIENCE=... ARROWHEAD_OAUTH_JWKS_URI=... \
+#     ARROWHEAD_SERVER_PUBLIC_URL=...
+#
+# The corpus volume attaches to a single machine, so the write corpus
+# stays consistent on one instance; horizontal scale would need an
+# object-storage backing (see the roadmap).
 app = "arrowhead"
 primary_region = "iad"
 
@@ -13,6 +22,11 @@ primary_region = "iad"
   ARROWHEAD_HOST = "0.0.0.0"
   ARROWHEAD_PORT = "8000"
   ARROWHEAD_AUTH_ENABLED = "true"
+  ARROWHEAD_DOCS_ROOT = "/var/lib/arrowhead/documents"
+
+[mounts]
+  source = "arrowhead_corpus"
+  destination = "/var/lib/arrowhead/documents"
 
 [http_service]
   internal_port = 8000

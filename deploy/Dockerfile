@@ -31,6 +31,12 @@ WORKDIR /app
 
 COPY --from=builder --chown=arrowhead:arrowhead /app /app
 
+# Corpus mount points, owned by the non-root user so the process can write
+# when a volume or disk is mounted here. A named Docker volume inherits this
+# ownership on first use; platform disks (Render, Fly) mount over the path.
+RUN mkdir -p /app/documents /var/lib/arrowhead/documents \
+    && chown -R arrowhead:arrowhead /app/documents /var/lib/arrowhead
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     ARROWHEAD_TRANSPORT=http \
