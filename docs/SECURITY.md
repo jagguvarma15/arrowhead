@@ -88,6 +88,29 @@ top risk.
   `tools/list` and cannot call it. Protected-resource metadata is published at
   `/.well-known/oauth-protected-resource/mcp` per RFC 9728.
 
+### Identity provider
+
+Arrowhead is a resource server, so it needs an external authorization server
+to issue tokens. Two provider paths are configurable (`ARROWHEAD_OAUTH_PROVIDER`):
+
+- **`workos`** (recommended for a hosted deployment): WorkOS AuthKit is
+  purpose-built for MCP. It supports the Dynamic Client Registration and
+  Client-ID-Metadata-Document registration MCP clients use to self-register,
+  hosts the authorization server, and serves the discovery metadata. Set
+  `ARROWHEAD_OAUTH_AUTHKIT_DOMAIN` to the AuthKit domain and
+  `ARROWHEAD_SERVER_PUBLIC_URL` to this server's canonical URL.
+- **`jwt`** (bring-your-own-IdP): verify against any OAuth 2.1 issuer via its
+  JWKS URI (preferred) or a static public key. Point `ARROWHEAD_OAUTH_ISSUER`,
+  `ARROWHEAD_OAUTH_AUDIENCE` (the canonical resource URI), and
+  `ARROWHEAD_OAUTH_JWKS_URI` at the IdP. **Keycloak** is a good open-source,
+  self-hostable choice here, though its RFC 8707 resource-indicator support is
+  still a manual mapper exercise as of early 2026.
+
+The JWKS verification path (key discovery, key rotation, and audience
+validation with a JWKS-sourced signature) is covered by an integration test
+that serves a key set in-process, so the production path is exercised, not only
+a static-key stub.
+
 ## Document tools: content, authorization, and mutation
 
 The document suite (`doc_search`, `doc_read`, `doc_retrieve`, `doc_scan`,
