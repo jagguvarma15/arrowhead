@@ -148,18 +148,17 @@ class Settings(BaseSettings):
     otel_service_name: str = "arrowhead"
 
     def rate_limits_per_minute(self) -> dict[str, int]:
-        """Explicit per-tool ceilings. Tools absent here fall back to
-        default_tool_per_minute in the rate-limit middleware, so no tool is
-        ever accidentally left unlimited."""
+        """Per-tool ceilings, one entry per catalog tool.
+
+        The catalog names which setting caps each tool, and the value is read
+        from that setting so the limit stays configurable per deployment. A
+        tool absent here falls back to default_tool_per_minute in the
+        rate-limit middleware, so no tool is ever accidentally left unlimited.
+        """
+        from arrowhead.tools.catalog import TOOL_SPECS
+
         return {
-            "safe_fetch": self.safe_fetch_per_minute,
-            "calculate": self.calculate_per_minute,
-            "read_file": self.read_file_per_minute,
-            "doc_search": self.doc_search_per_minute,
-            "doc_read": self.doc_read_per_minute,
-            "doc_retrieve": self.doc_retrieve_per_minute,
-            "doc_scan": self.doc_scan_per_minute,
-            "doc_write": self.doc_write_per_minute,
+            spec.name: getattr(self, spec.rate_limit_attr) for spec in TOOL_SPECS
         }
 
     def disabled_tool_set(self) -> set[str]:
