@@ -16,16 +16,10 @@ specific document.
 
 from fastmcp.server.auth import AuthCheck, require_scopes
 
-TOOL_SCOPES: dict[str, str] = {
-    "safe_fetch": "tools:read",
-    "calculate": "tools:read",
-    "read_file": "tools:read",
-    "doc_search": "docs:search",
-    "doc_read": "docs:read",
-    "doc_retrieve": "docs:read",
-    "doc_scan": "docs:scan",
-    "doc_write": "docs:write",
-}
+from arrowhead.tools.catalog import TOOL_SPECS
+
+# Derived from the catalog so a tool's scope is declared in exactly one place.
+TOOL_SCOPES: dict[str, str] = {spec.name: spec.scope for spec in TOOL_SPECS}
 
 
 def scope_checks(tool_name: str) -> list[AuthCheck]:
