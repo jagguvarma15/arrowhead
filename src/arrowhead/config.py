@@ -5,6 +5,9 @@ ARROWHEAD_JAIL_ROOT, the fetch timeout with ARROWHEAD_FETCH_TIMEOUT_SECONDS,
 and so on. A local .env file is honored for development.
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -176,7 +179,47 @@ class Settings(BaseSettings):
         )
 
 
+# An embedding host can supply its own settings for a block rather than
+# relying on process-wide environment state. When no override is active, the
+# settings loaded once from the environment are used.
+_settings_override: ContextVar[Settings | None] = ContextVar(
+    "arrowhead_settings", default=None
+)
+
+
 @lru_cache
-def get_settings() -> Settings:
-    """Return the process-wide settings, loading them on first use."""
+def _env_settings() -> Settings:
     return Settings()
+
+
+def get_settings() -> Settings:
+    """Return the settings in effect for the current call.
+
+    Inside a use_settings block the injected settings are returned; otherwise
+    the process-wide settings loaded from the environment are returned.
+    """
+    override = _settings_override.get()
+    return override if override is not None else _env_settings()
+
+
+# Keep the clear-the-cache affordance the environment-driven path relies on.
+get_settings.cache_clear = _env_settings.cache_clear
+
+
+def current_settings_override() -> Settings | None:
+    """Return the injected settings if a use_settings block is active."""
+    return _settings_override.get()
+
+
+@contextmanager
+def use_settings(settings: Settings) -> Iterator[Settings]:
+    """Use the given settings for the duration of the block.
+
+    This lets the server run inside a host process that has its own
+    configuration, without depending on process-wide environment variables.
+    """
+    reset = _settings_override.set(settings)
+    try:
+        yield settings
+    finally:
+        _settings_override.reset(reset)

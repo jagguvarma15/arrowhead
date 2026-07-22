@@ -13,7 +13,7 @@ from fastmcp.exceptions import ToolError
 
 from arrowhead.auth.identity import caller_identity
 from arrowhead.authz.policy import Authorizer, Resource, build_authorizer
-from arrowhead.config import get_settings
+from arrowhead.config import current_settings_override, get_settings
 
 
 class AuthorizationError(ToolError):
@@ -21,9 +21,24 @@ class AuthorizationError(ToolError):
 
 
 @lru_cache
-def get_authorizer() -> Authorizer:
-    """Process-wide authorizer built from settings; cleared in tests."""
+def _env_authorizer() -> Authorizer:
     return build_authorizer(get_settings())
+
+
+def get_authorizer() -> Authorizer:
+    """The authorizer for the settings in effect for the current call.
+
+    Under an injected settings block the authorizer is built from those
+    settings so an embedding host's policy takes effect; otherwise the
+    process-wide authorizer is built once and reused.
+    """
+    if current_settings_override() is not None:
+        return build_authorizer(get_settings())
+    return _env_authorizer()
+
+
+# Keep the clear-the-cache affordance the environment-driven path relies on.
+get_authorizer.cache_clear = _env_authorizer.cache_clear
 
 
 def authorize_action(action: str, resource: Resource) -> str:
