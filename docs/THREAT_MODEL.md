@@ -33,10 +33,12 @@ Every tool argument is attacker-controlled input.
 - **Controls:** scheme allowlist, resolve-and-check-every-address, address
   pinning, per-hop re-validation, response size cap, and construction of
   outbound requests without inbound credentials.
-- **Residual risk:** a service reachable at a genuinely public address is
-  fetchable — this is a general-purpose fetch tool, not an allowlist of
-  approved destinations. Deployments that need destination allowlisting should
-  add it on top.
+- **Residual risk:** by default any service at a genuinely public address is
+  fetchable, since this is a general-purpose fetch tool. A deployment that
+  needs to restrict destinations sets an egress allowlist
+  (`ARROWHEAD_EGRESS_ALLOWED_HOSTS`), which confines the fetch and retrieve
+  tools to approved hosts and is enforced on every redirect hop. With it unset
+  the guard still blocks private ranges but not public destinations.
 
 ### `calculate`
 
