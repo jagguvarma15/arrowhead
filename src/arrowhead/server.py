@@ -44,6 +44,11 @@ def create_server() -> FastMCP:
             # SIGTERM shutdown drains cleanly instead of leaking a connection.
             if rate_limiter is not None:
                 await rate_limiter.aclose()
+            # Close any database engines a connector opened, for the same
+            # clean shutdown. This is a no-op when no connector ran.
+            from arrowhead.connectors.sql import dispose_engines
+
+            await dispose_engines()
 
     mcp = FastMCP(
         name="arrowhead",
