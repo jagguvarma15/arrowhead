@@ -48,6 +48,7 @@ async def fetch_url(
     """
     settings = get_settings()
     validate_url(url)
+    allowed_hosts = settings.egress_allowed_hosts_set()
 
     async with httpx.AsyncClient(
         transport=transport,
@@ -56,7 +57,9 @@ async def fetch_url(
     ) as client:
         current = url
         for _ in range(settings.fetch_max_redirects + 1):
-            target = await resolve_pinned(current, getaddrinfo=getaddrinfo)
+            target = await resolve_pinned(
+                current, getaddrinfo=getaddrinfo, allowed_hosts=allowed_hosts
+            )
             extensions = {}
             if target.scheme == "https":
                 extensions["sni_hostname"] = target.host
