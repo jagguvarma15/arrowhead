@@ -22,9 +22,13 @@ arrowhead = "arrowhead.cli:main"
 
 [project.optional-dependencies]
 # The SQL connector. Kept out of the base install so a deployment that does
-# not use it carries neither the parser nor a database driver.
+# not use it carries neither the parser nor a database driver. aiosqlite
+# covers SQLite and the file-backed demo corpus; other drivers are added
+# alongside the databases they serve.
 sql = [
     "sqlglot>=25.0.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "aiosqlite>=0.20.0",
 ]
 
 [build-system]
