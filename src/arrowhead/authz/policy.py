@@ -17,11 +17,14 @@ from typing import Protocol
 
 from arrowhead.config import Settings
 
-# Actions correspond to the document verbs, decoupled from tool names.
+# Actions correspond to the resource verbs, decoupled from tool names.
 ACTION_SEARCH = "search"
 ACTION_READ = "read"
 ACTION_SCAN = "scan"
 ACTION_WRITE = "write"
+# Reading a database table is its own verb, so a policy can grant table access
+# independently of document access even though both are reads.
+ACTION_QUERY = "query"
 
 # A grant prefix may contain this token, expanded to the requesting
 # subject before matching, so one rule can scope every caller to its own
@@ -36,6 +39,9 @@ SUBJECT_TOKEN = "${subject}"  # noqa: S105  # a path template token, not a secre
 KIND_DOCUMENT = "document"
 KIND_PREFIX = "prefix"
 KIND_URL = "url"
+# A database table, identified as "schema.table" (or "database.schema.table").
+# Like a document it is a point resource: it must sit under a granted prefix.
+KIND_TABLE = "table"
 
 
 @dataclass(frozen=True)
@@ -119,7 +125,9 @@ class JailPolicy:
 _DEFAULT_GRANTS = [
     Grant(
         subject="*",
-        actions=frozenset({ACTION_SEARCH, ACTION_READ, ACTION_SCAN}),
+        actions=frozenset(
+            {ACTION_SEARCH, ACTION_READ, ACTION_SCAN, ACTION_QUERY}
+        ),
         prefix="",
     ),
     Grant(subject="*", actions=frozenset({ACTION_WRITE}), prefix=f"{SUBJECT_TOKEN}/"),
