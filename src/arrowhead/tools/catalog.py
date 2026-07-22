@@ -139,4 +139,15 @@ TOOL_SPECS: list[ToolSpec] = [
             "openWorldHint": False,
         },
     ),
+    ToolSpec(
+        name="sql_query",
+        import_path="arrowhead.connectors.sql:sql_query",
+        scope="sql:read",
+        rate_limit_attr="sql_query_per_minute",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
 ]
