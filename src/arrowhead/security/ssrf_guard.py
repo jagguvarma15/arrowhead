@@ -63,12 +63,22 @@ class PinnedTarget:
         return f"{self.host}:{self.port}"
 
 
-async def resolve_pinned(url: str, *, getaddrinfo=None) -> PinnedTarget:
+async def resolve_pinned(
+    url: str,
+    *,
+    getaddrinfo=None,
+    allowed_hosts: frozenset[str] | None = None,
+) -> PinnedTarget:
     """Vet a URL and pin the address the caller must connect to.
 
     Raises BlockedURLError for disallowed schemes, unresolvable hosts, and
     any host whose resolution includes a non-public address. Every resolved
     address must pass, since an attacker can mix public and private records.
+
+    When allowed_hosts is a non-empty set of lowercased hostnames, the URL's
+    host must be one of them; every other host is refused even if it resolves
+    to a public address. This is the destination allowlist shared by every
+    URL-addressed caller.
     """
     parts = urlsplit(url)
     scheme = parts.scheme.lower()
@@ -77,6 +87,8 @@ async def resolve_pinned(url: str, *, getaddrinfo=None) -> PinnedTarget:
     host = parts.hostname
     if not host:
         raise BlockedURLError("URL has no host")
+    if allowed_hosts and host.lower() not in allowed_hosts:
+        raise BlockedURLError("host is not in the egress allowlist")
     port = parts.port if parts.port is not None else DEFAULT_PORTS[scheme]
 
     addresses = await _resolve(host, port, getaddrinfo)
