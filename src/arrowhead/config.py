@@ -112,6 +112,13 @@ class Settings(BaseSettings):
     fetch_max_response_bytes: int = 1_000_000
     fetch_max_redirects: int = 3
 
+    # Outbound destination allowlist shared by the URL-fetching tools. When set
+    # (comma-separated hostnames), only these hosts may be reached and every
+    # other host is refused on every redirect hop, closing the gap where a
+    # genuinely public but attacker-chosen host is otherwise fetchable. Empty
+    # allows any public host; the SSRF guard still blocks private ranges.
+    egress_allowed_hosts: str = ""
+
     # calculate
     expression_max_length: int = 200
 
@@ -176,6 +183,15 @@ class Settings(BaseSettings):
             ext.strip().lower()
             for ext in self.doc_allowed_extensions.split(",")
             if ext.strip()
+        )
+
+    def egress_allowed_hosts_set(self) -> frozenset[str]:
+        """Lowercased set of hosts the fetch tools may reach; empty allows any
+        public host."""
+        return frozenset(
+            host.strip().lower()
+            for host in self.egress_allowed_hosts.split(",")
+            if host.strip()
         )
 
 
