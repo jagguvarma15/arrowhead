@@ -122,6 +122,25 @@ class Settings(BaseSettings):
     # calculate
     expression_max_length: int = 200
 
+    # SQL connector (sql extra). The read tool runs a single vetted read-only
+    # statement against this database. The DSN is a SQLAlchemy async URL, e.g.
+    # sqlite+aiosqlite:///data/app.db or postgresql+asyncpg://user@host/db.
+    # Empty leaves the connector unconfigured and the tool refuses to run.
+    sql_dsn: str = ""
+    # The SQL dialect the guard parses against; empty lets it infer. Set it to
+    # the database's dialect (e.g. postgres, sqlite) for the most accurate
+    # parse of dialect-specific syntax.
+    sql_dialect: str = ""
+    sql_query_max_length: int = 2000
+    # Result budget that keeps a wide or large result from overrunning the
+    # model's context window.
+    sql_max_rows: int = 1000
+    sql_max_bytes: int = 1_000_000
+    sql_max_columns: int = 100
+    # Best-effort per-call time budget; a server-side statement timeout is set
+    # in addition where the database supports it.
+    sql_timeout_seconds: float = 10.0
+
     # abuse controls. Ceilings are calls per caller per minute; network-
     # bound safe_fetch gets a low ceiling, cheap calculate a high one.
     # With ARROWHEAD_REDIS_URL set, buckets live in Redis and the limits
@@ -135,6 +154,7 @@ class Settings(BaseSettings):
     doc_retrieve_per_minute: int = 30
     doc_scan_per_minute: int = 20
     doc_write_per_minute: int = 30
+    sql_query_per_minute: int = 60
     # ceiling for any tool without an explicit limit above, so a new tool
     # is never silently unlimited
     default_tool_per_minute: int = 60
