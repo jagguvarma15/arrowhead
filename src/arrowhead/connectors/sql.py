@@ -14,7 +14,18 @@ This is the first line of defense; the connector also runs the statement under
 a read-only database role, so a bypass here is still refused by the database.
 """
 
+import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
+
+import anyio
+from fastmcp.exceptions import ToolError
+
+from arrowhead.authz.enforce import authorize_action
+from arrowhead.authz.policy import ACTION_QUERY, KIND_TABLE, Resource
+from arrowhead.config import get_settings
+from arrowhead.content.provenance import wrap_content
+from arrowhead.content.text_safe import sanitize_text
 
 _MISSING_SQL_EXTRA = (
     "the SQL connector requires the 'sql' extra: install arrowhead[sql]"
@@ -23,6 +34,10 @@ _MISSING_SQL_EXTRA = (
 
 class SqlGuardError(Exception):
     """A query was refused before it could run."""
+
+
+class SqlConnectorError(Exception):
+    """A vetted query could not be executed safely."""
 
 
 @dataclass(frozen=True)
@@ -92,3 +107,137 @@ def _referenced_tables(root) -> frozenset[str]:
         if parts:
             tables.add(".".join(parts).lower())
     return frozenset(tables)
+
+
+# Engines hold a connection pool and are expensive to build, so one is created
+# per DSN on first use and reused. dispose_engines closes them on shutdown.
+_engines: dict[str, object] = {}
+
+
+def _get_engine(dsn: str):
+    engine = _engines.get(dsn)
+    if engine is None:
+        try:
+            from sqlalchemy.ext.asyncio import create_async_engine
+        except ImportError as exc:  # pragma: no cover - only without the extra
+            raise SqlConnectorError(_MISSING_SQL_EXTRA) from exc
+        engine = create_async_engine(dsn, pool_pre_ping=True)
+        _engines[dsn] = engine
+    return engine
+
+
+async def dispose_engines() -> None:
+    """Close every open engine. Called from the server lifespan on shutdown."""
+    for engine in list(_engines.values()):
+        await engine.dispose()
+    _engines.clear()
+
+
+async def sql_query(query: str, params: dict | None = None) -> dict:
+    """Run a read-only SQL query and return its rows as untrusted data. Only a
+    single SELECT may run; every referenced table is authorized, and results
+    are capped. Bind values with named parameters. Example: sql_query(query=
+    "select id, email from users where org = :org", params={"org": "acme"}).
+    """
+    settings = get_settings()
+    if not settings.sql_dsn:
+        raise ToolError("the SQL connector is not configured")
+    if len(query) > settings.sql_query_max_length:
+        raise ToolError(
+            f"query exceeds {settings.sql_query_max_length} characters"
+        )
+    bind = _validate_params(params)
+
+    try:
+        guarded = guard_read_query(query, dialect=settings.sql_dialect or None)
+    except SqlGuardError as exc:
+        raise ToolError(str(exc)) from exc
+
+    # A scope lets the caller reach the tool; this scopes them to the tables.
+    for table in sorted(guarded.tables):
+        authorize_action(ACTION_QUERY, Resource(kind=KIND_TABLE, identifier=table))
+
+    try:
+        rows, columns, truncated = await _execute(guarded, bind, settings)
+    except SqlConnectorError as exc:
+        raise ToolError(str(exc)) from exc
+
+    payload = json.dumps(rows, ensure_ascii=False, sort_keys=True, default=str)
+    wrapped = wrap_content(
+        payload,
+        source="sql",
+        content_format="json",
+        retrieved_at=datetime.now(UTC).isoformat(),
+    )
+    wrapped["metadata"]["columns"] = columns
+    wrapped["metadata"]["row_count"] = len(rows)
+    wrapped["metadata"]["truncated"] = truncated
+    return wrapped
+
+
+def _validate_params(params: dict | None) -> dict:
+    if params is None:
+        return {}
+    if not isinstance(params, dict):
+        raise ToolError("params must be an object of named bind values")
+    bind: dict = {}
+    for key, value in params.items():
+        if not isinstance(key, str) or not key.isidentifier():
+            raise ToolError("param names must be identifiers")
+        if value is not None and not isinstance(value, (str, int, float, bool)):
+            raise ToolError("param values must be scalars")
+        bind[key] = value
+    return bind
+
+
+async def _execute(guarded: GuardedQuery, bind: dict, settings):
+    try:
+        from sqlalchemy import text
+        from sqlalchemy.exc import SQLAlchemyError
+    except ImportError as exc:  # pragma: no cover - only without the extra
+        raise SqlConnectorError(_MISSING_SQL_EXTRA) from exc
+
+    engine = _get_engine(settings.sql_dsn)
+    rows: list[dict] = []
+    truncated = False
+    total_bytes = 0
+    try:
+        with anyio.fail_after(settings.sql_timeout_seconds):
+            async with engine.connect() as conn:
+                result = await conn.stream(text(guarded.sql), bind)
+                columns = list(result.keys())
+                if len(columns) > settings.sql_max_columns:
+                    await result.close()
+                    raise SqlConnectorError(
+                        f"result exceeds {settings.sql_max_columns} columns"
+                    )
+                async for row in result:
+                    record = {
+                        column: _cell(value)
+                        for column, value in row._mapping.items()
+                    }
+                    rows.append(record)
+                    total_bytes += len(str(record))
+                    if (
+                        len(rows) >= settings.sql_max_rows
+                        or total_bytes > settings.sql_max_bytes
+                    ):
+                        truncated = True
+                        break
+                await result.close()
+    except TimeoutError as exc:
+        raise SqlConnectorError("the query exceeded its time budget") from exc
+    except SQLAlchemyError as exc:
+        raise SqlConnectorError(f"query failed: {type(exc).__name__}") from exc
+    return rows, columns, truncated
+
+
+def _cell(value):
+    """Return a JSON-safe, sanitized form of a database value."""
+    if isinstance(value, str):
+        return sanitize_text(value)
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, bytes):
+        return f"<{len(value)} bytes>"
+    return sanitize_text(str(value))
