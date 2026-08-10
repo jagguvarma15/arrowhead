@@ -77,6 +77,17 @@ def create_server() -> FastMCP:
 
 def main() -> None:
     settings = get_settings()
+    if (
+        settings.transport == "http"
+        and not settings.auth_enabled
+        and not settings.allow_insecure_http
+    ):
+        raise SystemExit(
+            "Refusing to serve HTTP with authentication disabled: every tool "
+            "would be exposed with no scope or per-resource check. Enable "
+            "ARROWHEAD_AUTH_ENABLED, or set ARROWHEAD_ALLOW_INSECURE_HTTP=true "
+            "for a trusted-network test."
+        )
     configure_telemetry(settings)
     mcp = create_server()
     if settings.transport == "http":
