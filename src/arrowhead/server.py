@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
 
+from arrowhead import __version__
 from arrowhead.auth.oauth import build_auth_provider
 from arrowhead.cache import attach_list_cache_hints
 from arrowhead.config import get_settings
@@ -52,7 +53,7 @@ def create_server() -> FastMCP:
 
     mcp = FastMCP(
         name="arrowhead",
-        version="0.1.0",
+        version=__version__,
         instructions=(
             "Hardened general-purpose MCP server. Every tool validates its "
             "input before acting; the document tools also enforce per-resource "
@@ -61,9 +62,15 @@ def create_server() -> FastMCP:
         auth=build_auth_provider(settings),
         middleware=middleware,
         lifespan=lifespan,
+        # Never return an internal exception message to the client; an
+        # unhandled error surfaces as a generic failure, not a stack-depth
+        # string, a driver name, or a database error.
+        mask_error_details=True,
     )
     register_components(mcp, enforce_scopes=settings.auth_enabled)
-    attach_list_cache_hints(mcp, settings.tool_list_ttl_ms)
+    attach_list_cache_hints(
+        mcp, settings.tool_list_ttl_ms, settings.resource_read_ttl_ms
+    )
     register_health_routes(mcp, rate_limiter)
     return mcp
 
