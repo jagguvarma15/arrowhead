@@ -3,7 +3,17 @@ import logging
 
 from fastmcp import Client
 
-from arrowhead.observability.audit_log import describe_arguments
+from arrowhead.observability.audit_log import describe_arguments, describe_resource
+
+
+def test_describe_resource_hides_the_path():
+    # A doc:// URI carries a caller-supplied path that must not reach the log.
+    described = describe_resource("doc://notes/secret-plans.md")
+    assert "secret-plans" not in described
+    assert "notes" not in described
+    assert described.startswith("doc://str[")
+    # A bare string with no scheme is still shape-only.
+    assert describe_resource("plain").startswith("str[")
 
 
 def audit_records(caplog):
