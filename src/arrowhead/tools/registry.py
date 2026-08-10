@@ -17,12 +17,18 @@ from arrowhead.auth.scopes import checks_for_scope, scope_checks
 from arrowhead.tools.catalog import PROMPT_SPECS, RESOURCE_SPECS, TOOL_SPECS
 
 
-def register_components(mcp: FastMCP, *, enforce_scopes: bool = True) -> None:
+def register_components(
+    mcp: FastMCP,
+    *,
+    enforce_scopes: bool = True,
+    rate_limiter=None,
+    disabled: frozenset[str] = frozenset(),
+) -> None:
     """Register every tool, resource, and prompt, and the completion handler."""
     register_tools(mcp, enforce_scopes=enforce_scopes)
     register_resources(mcp, enforce_scopes=enforce_scopes)
     register_prompts(mcp, enforce_scopes=enforce_scopes)
-    register_completions(mcp)
+    register_completions(mcp, rate_limiter=rate_limiter, disabled=disabled)
 
 
 def register_tools(mcp: FastMCP, *, enforce_scopes: bool = True) -> None:
@@ -57,8 +63,18 @@ def register_prompts(mcp: FastMCP, *, enforce_scopes: bool = True) -> None:
         )
 
 
-def register_completions(mcp: FastMCP) -> None:
-    """Attach the argument-completion handler to the low-level server."""
-    from arrowhead.completions.handlers import complete_argument
+def register_completions(
+    mcp: FastMCP,
+    *,
+    rate_limiter=None,
+    disabled: frozenset[str] = frozenset(),
+) -> None:
+    """Attach the guarded argument-completion handler to the low-level server.
 
-    mcp._mcp_server.completion()(complete_argument)
+    The handler is wrapped so the completion path, which bypasses the
+    middleware chain, still passes the same per-caller rate limit, kill switch,
+    and audit line as a tool call.
+    """
+    from arrowhead.completions.handlers import guarded_completion
+
+    mcp._mcp_server.completion()(guarded_completion(rate_limiter, disabled))
