@@ -17,6 +17,10 @@ services:
       ARROWHEAD_REDIS_URL: redis://redis:6379/0
       ARROWHEAD_JAIL_ROOT: /app/sandbox
       ARROWHEAD_DOCS_ROOT: /app/documents
+      # The SQL and pgvector connectors run against the bundled Postgres. Set
+      # ARROWHEAD_PGVECTOR_COLLECTIONS to a table you have created before the
+      # vector_search tool will run.
+      ARROWHEAD_SQL_DSN: postgresql+asyncpg://arrow:arrow@postgres:5432/arrow
     volumes:
       # Path is relative to this compose file, so the repo-root sandbox
       # sits one level up.
@@ -35,6 +39,24 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: arrow
+      POSTGRES_PASSWORD: arrow
+      POSTGRES_DB: arrow
+    ports:
+      - "5432:5432"
+    volumes:
+      - arrowhead-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "arrow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
@@ -48,3 +70,4 @@ services:
 
 volumes:
   arrowhead-corpus:
+  arrowhead-postgres:
