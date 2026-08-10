@@ -33,6 +33,20 @@ async def test_results_are_bounded(docs, monkeypatch):
     assert result["truncated"] is True
 
 
+async def test_search_prefix_match_survives_the_file_cap(docs, monkeypatch):
+    # A match under z/ that sorts behind the file cap must still be found,
+    # because the prefix is applied while the store walks the corpus.
+    monkeypatch.setenv("ARROWHEAD_SEARCH_MAX_FILES", "10")
+    get_settings.cache_clear()
+    for i in range(20):
+        (docs / f"a{i:02d}.txt").write_text("nothing")
+    (docs / "z").mkdir()
+    (docs / "z" / "hit.txt").write_text("the deadline is friday")
+    result = await doc_search("deadline", path_prefix="z/")
+    assert result["match_count"] == 1
+    assert result["matches"][0]["path"] == "z/hit.txt"
+
+
 async def test_empty_query_rejected(docs):
     with pytest.raises(ToolError):
         await doc_search("   ")

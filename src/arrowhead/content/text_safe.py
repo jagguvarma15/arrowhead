@@ -17,9 +17,23 @@ _ANSI_CSI = re.compile(r"\x1b\[[0-9;?]{0,32}[ -/]{0,8}[@-~]")
 _ANSI_OSC = re.compile(r"\x1b\][^\x07\x1b]{0,2000}(?:\x07|\x1b\\)")
 # C0 and C1 control characters except tab, newline, and carriage return.
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
-# Zero-width, bidi override, byte-order-mark, and soft-hyphen characters.
+# Invisible and non-rendering characters used to smuggle text past filters
+# or hide instructions inside otherwise plain content: zero-width, bidi
+# controls (embeddings, overrides, and isolates), byte-order mark, soft
+# hyphen, the variation selectors (including the supplement), and the
+# Unicode Tags block, whose 128 code points are a current smuggling vector.
 _INVISIBLE = re.compile(
-    "[​-‏‪-‮⁠-⁤﻿­]"
+    "["
+    "­"  # soft hyphen
+    "​-‏"  # zero-width space/non-joiner/joiner, LRM, RLM
+    "‪-‮"  # bidi embeddings and overrides
+    "⁠-⁤"  # word joiner and invisible math operators
+    "⁦-⁩"  # bidi isolates (LRI, RLI, FSI, PDI)
+    "﻿"  # byte-order mark / zero-width no-break space
+    "︀-️"  # variation selectors 1-16
+    "\U000e0000-\U000e007f"  # Unicode Tags block
+    "\U000e0100-\U000e01ef"  # variation selectors supplement
+    "]"
 )
 
 _UTF7_BOM = b"\x2b\x2f\x76"

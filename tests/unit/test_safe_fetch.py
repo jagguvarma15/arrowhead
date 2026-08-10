@@ -82,6 +82,23 @@ async def test_invalid_url_rejected():
         await safe_fetch("")
 
 
+async def test_safe_fetch_consults_authorizer(monkeypatch):
+    # A policy that grants no read denies the fetch before any network
+    # activity, proving the tool no longer relies on scope alone.
+    from arrowhead.authz.enforce import get_authorizer
+    from arrowhead.config import get_settings
+
+    monkeypatch.setenv("ARROWHEAD_AUTH_ENABLED", "true")
+    monkeypatch.setenv(
+        "ARROWHEAD_AUTHZ_POLICY",
+        '{"grants": [{"subject": "*", "actions": ["write"], "prefix": ""}]}',
+    )
+    get_settings.cache_clear()
+    get_authorizer.cache_clear()
+    with pytest.raises(ToolError):
+        await safe_fetch("https://example.com/")
+
+
 async def test_outbound_request_carries_no_credentials(make_resolver):
     """The caller's MCP bearer token must never ride along on fetches."""
 

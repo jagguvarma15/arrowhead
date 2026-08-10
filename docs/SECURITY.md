@@ -174,6 +174,38 @@ to an under-privileged caller. The MUST-level discovery path (401 with
 `WWW-Authenticate` and `resource_metadata` on a missing or invalid token) is
 still served.
 
+## Data connectors: `sql_query`, `vector_search`
+
+The SQL connector never runs the caller's raw text. A statement is parsed in the
+database's own dialect (derived from the DSN), and only a single read-only
+`SELECT` survives: stacked statements, every write form, DDL, and `SET` are
+refused. The canonical statement, not the raw text, is executed, so comments
+cannot hide a second statement. Every referenced table is authorized, and a
+query that reads no table is authorized against a sentinel so it cannot skip the
+check. As defense in depth behind the parser, the connector runs each query in a
+read-only transaction under a server-side statement timeout, and a read-only
+database role is the recommended credential. Column names, not just values, are
+sanitized before they leave the process.
+
+`vector_search` adds tenant isolation as a first-class control: the collection
+must be one a deployment allow-listed (the table name is never taken raw from
+the caller), and the tenant filter is the authenticated caller, injected
+server-side, never an argument, so one tenant cannot read another's rows even
+by asking. The query embedding is bound as a parameter, and `k`, row, byte, and
+dimension counts are all bounded.
+
+## Resources, prompts, and completions
+
+The non-tool primitives are not a bypass. A resource read runs the same
+per-resource authorization and content sanitization as the equivalent tool call,
+so `doc://{path}` is exactly as safe as `doc_read`. Prompts reference documents
+by resource URI or by a tool call rather than inlining corpus text, and sanitize
+their arguments, so the instruction channel cannot carry untrusted content.
+Completion candidates pass the same per-document read authorization as search,
+so completion never reveals a path the caller could not read. Audit logging,
+rate limiting, and the kill switch cover resource reads and prompt gets, not
+only tool calls.
+
 ## Abuse controls and observability
 
 - **Rate limiting** (`security/rate_limit.py`): per-caller, per-tool token

@@ -17,6 +17,7 @@ REGISTERED_TOOLS = {
     "doc_scan",
     "doc_write",
     "sql_query",
+    "vector_search",
 }
 
 
@@ -65,4 +66,5 @@ def test_supported_scopes_deduplicated_and_sorted():
         "docs:write",
         "sql:read",
         "tools:read",
+        "vector:search",
     ]

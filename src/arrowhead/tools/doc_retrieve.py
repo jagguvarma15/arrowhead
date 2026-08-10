@@ -19,14 +19,14 @@ from arrowhead.authz.policy import ACTION_READ, KIND_URL, Resource
 from arrowhead.config import get_settings
 from arrowhead.content.json_safe import JSONSafetyError, parse_json
 from arrowhead.content.markdown_safe import sanitize_markdown
-from arrowhead.content.provenance import wrap_content
+from arrowhead.content.provenance import ProvenancedResult, wrap_content
 from arrowhead.content.text_safe import sanitize_text
 from arrowhead.security.input_validation import ValidationError, validate_url
 from arrowhead.security.ssrf_guard import BlockedURLError
 from arrowhead.tools.safe_fetch import FetchTooLargeError, fetch_url
 
 
-async def doc_retrieve(url: str) -> dict:
+async def doc_retrieve(url: str) -> ProvenancedResult:
     """Retrieve a JSON, Markdown, or text document from a public URL,
     SSRF-guarded and sanitized. Returns wrapped, untrusted content.
     Example: doc_retrieve(url="https://example.com/data.json").

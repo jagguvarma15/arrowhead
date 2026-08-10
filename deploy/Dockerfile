@@ -13,14 +13,15 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 
 # Install dependencies first against the lockfile so this layer caches
-# across source changes.
+# across source changes. The sql and postgres extras are included so the
+# reference image can serve the SQL and pgvector connectors.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --no-dev
+RUN uv sync --frozen --no-install-project --no-dev --extra sql --extra postgres
 
 # Then install the project itself.
 COPY src ./src
 COPY README.md ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --extra sql --extra postgres
 
 
 FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de AS runtime

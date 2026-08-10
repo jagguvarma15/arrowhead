@@ -8,9 +8,7 @@ Markdown has HTML and exfiltration vectors removed; plain text has escapes
 and invisible characters stripped.
 """
 
-import json
 from datetime import UTC, datetime
-from pathlib import PurePosixPath
 
 import anyio
 from fastmcp.exceptions import ToolError
@@ -18,15 +16,15 @@ from fastmcp.exceptions import ToolError
 from arrowhead.authz.enforce import authorize_action
 from arrowhead.authz.policy import ACTION_READ, KIND_DOCUMENT, Resource
 from arrowhead.config import get_settings
-from arrowhead.content.json_safe import JSONSafetyError, parse_json
-from arrowhead.content.markdown_safe import sanitize_markdown
-from arrowhead.content.provenance import wrap_content
-from arrowhead.content.text_safe import TextSafetyError, decode_text, sanitize_text
+from arrowhead.content.json_safe import JSONSafetyError
+from arrowhead.content.provenance import ProvenancedResult, wrap_content
+from arrowhead.content.render import render_document
+from arrowhead.content.text_safe import TextSafetyError
 from arrowhead.security.input_validation import ValidationError, validate_document_path
 from arrowhead.store.document_store import DocumentStoreError, build_document_store
 
 
-async def doc_read(path: str) -> dict:
+async def doc_read(path: str) -> ProvenancedResult:
     """Read a JSON, Markdown, or text document from the corpus by relative
     path. Returns sanitized content wrapped with provenance. Example:
     doc_read(path="notes/todo.md").
@@ -44,7 +42,7 @@ async def doc_read(path: str) -> dict:
     store = build_document_store(settings)
     try:
         data = await anyio.to_thread.run_sync(store.read_bytes, path)
-        content, content_format = _render(path, data, settings)
+        content, content_format = render_document(path, data, settings)
     except DocumentStoreError as exc:
         raise ToolError(str(exc)) from exc
     except (JSONSafetyError, TextSafetyError) as exc:
@@ -56,18 +54,3 @@ async def doc_read(path: str) -> dict:
         content_format=content_format,
         retrieved_at=datetime.now(UTC).isoformat(),
     )
-
-
-def _render(path: str, data: bytes, settings) -> tuple[str, str]:
-    suffix = PurePosixPath(path).suffix.lower()
-    if suffix == ".json":
-        parsed = parse_json(
-            decode_text(data),
-            max_bytes=settings.content_max_bytes,
-            max_depth=settings.json_max_depth,
-            max_elements=settings.json_max_elements,
-        )
-        return json.dumps(parsed, ensure_ascii=False, sort_keys=True, indent=2), "json"
-    if suffix == ".md":
-        return sanitize_markdown(sanitize_text(data)), "md"
-    return sanitize_text(data), "txt"

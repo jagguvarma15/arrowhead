@@ -9,6 +9,7 @@ returned or logged.
 """
 
 import time
+from typing import TypedDict
 
 import anyio
 from fastmcp.exceptions import ToolError
@@ -23,7 +24,27 @@ from arrowhead.security.secret_scan import scan_text
 from arrowhead.store.document_store import DocumentStoreError, build_document_store
 
 
-async def doc_scan(path_prefix: str = "") -> dict:
+class ScanFinding(TypedDict):
+    """One redacted finding: the document, the line, the type, and a placeholder."""
+
+    path: str
+    line: int
+    type: str
+    match: str
+
+
+class ScanResult(TypedDict):
+    """The redacted result of a corpus secrets-and-PII scan."""
+
+    notice: str
+    path_prefix: str
+    files_scanned: int
+    finding_count: int
+    truncated: bool
+    findings: list[ScanFinding]
+
+
+async def doc_scan(path_prefix: str = "") -> ScanResult:
     """Scan corpus documents for secrets and PII and return redacted
     findings (type, location, and a hashed placeholder, never the raw
     value). Example: doc_scan(path_prefix="exports/").
@@ -46,15 +67,19 @@ def _run_scan(path_prefix, subject, settings) -> dict:
     authorizer = get_authorizer()
     findings: list[dict] = []
     files_scanned = 0
-    truncated = False
     deadline = time.monotonic() + settings.scan_timeout_seconds
 
-    for info in store.list(
+    # The store applies the path prefix while it walks, so hitting the file
+    # cap before a match is reported as a truncated listing rather than as a
+    # silent zero result.
+    listing = store.list(
         extensions=settings.doc_allowed_extension_set(),
         max_files=settings.scan_max_files,
-    ):
-        if path_prefix and not info.path.startswith(path_prefix):
-            continue
+        path_prefix=path_prefix,
+    )
+    truncated = listing.truncated
+
+    for info in listing.items:
         if not authorizer.authorize(
             subject, ACTION_SCAN, Resource(kind=KIND_DOCUMENT, identifier=info.path)
         ).allowed:

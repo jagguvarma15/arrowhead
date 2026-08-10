@@ -1,27 +1,36 @@
 # Arrowhead
 
-Arrowhead is a hardened, general-purpose [Model Context Protocol](https://modelcontextprotocol.io)
-server. It exists to demonstrate best-practice MCP security in working code
-rather than prose: OAuth 2.1 authorization, SSRF and path-traversal defenses,
-sandboxed evaluation, per-caller rate limiting, structured audit logging, and
-token-efficient tool schemas.
+**The fast, secure data plane for AI agents.** Arrowhead is a hardened
+[Model Context Protocol](https://modelcontextprotocol.io) server and an
+installable foundation for exposing infrastructure (a document corpus, SQL, a
+pgvector store) to AI agents safely. The safe path is the default path: OAuth
+2.1 authorization, per-resource authorization, SSRF and path-traversal defenses,
+content sanitization and provenance, per-caller rate limiting, structured audit
+logging, and token-efficient schemas apply to every component, and there is no
+unguarded path. It targets MCP specification 2025-11-25 and exposes the full
+modern surface: tools with structured output, resources and resource templates,
+prompts, and argument completions.
+
+Security lives inside each tool, resource, and prompt rather than in a proxy in
+front of them, so the guarantees hold whether a call arrives over HTTP or the
+server is imported and called directly from Python.
 
 ## Why it looks the way it does
 
 A published assessment of MCP servers in the wild found the same handful of
 flaws again and again: command injection, server-side request forgery, path
-traversal, and a large share with no authentication at all. Arrowhead ships
-three tools, and each one is a direct, working answer to one of those classes:
+traversal, and a large share with no authentication at all. Each built-in tool
+is a direct, working answer to one of those classes:
 
 | Tool | Vulnerability class it closes | How |
 |---|---|---|
-| `safe_fetch` | Server-side request forgery | Resolves the target host, refuses private, loopback, link-local, and cloud-metadata addresses, and pins the vetted IP for the connection so DNS rebinding cannot swap it |
+| `safe_fetch` | Server-side request forgery | Resolves the target host, refuses private, loopback, link-local, and cloud-metadata addresses, restricts the port, and pins the vetted IP so DNS rebinding cannot swap it |
 | `calculate` | Command / code injection | A strict character allowlist, then an AST interpreter that evaluates only numbers and basic operators. No `eval`, no `exec`, no shell |
 | `read_file` | Path traversal | Relative paths only, no parent components, and the fully resolved path (after symlinks) must stay inside one configured jail directory |
 
-All three are read-only and carry accurate MCP behavior annotations. Auth,
-rate limiting, audit logging, and tracing wrap every call regardless of which
-tool it targets.
+Each carries accurate MCP behavior annotations and a published output schema.
+Auth, per-resource authorization, rate limiting, audit logging, and tracing wrap
+every call regardless of which tool, resource, or prompt it targets.
 
 ## Quickstart
 
@@ -95,6 +104,55 @@ designed so an external engine (OPA, Cedar) can replace it later. Overwriting an
 existing document is destructive and requests human confirmation via MCP
 elicitation.
 
+## Data connectors
+
+The flagship connector exposes a Postgres database, including a
+[pgvector](https://github.com/pgvector/pgvector) store, behind the same guards.
+Both are opt-in extras (`pip install 'arrowhead[sql,postgres]'`) and both refuse
+to run until a DSN is configured.
+
+| Tool | Scope | Purpose |
+|---|---|---|
+| `sql_query(query, params)` | `sql:read` | Runs a single vetted read-only statement. The query is parsed in the database's own dialect, every referenced table (or a sentinel for a tableless query) is authorized, and it runs in a read-only transaction under a server-side statement timeout. Bind values with named parameters |
+| `vector_search(collection, embedding, k)` | `vector:search` | A bounded pgvector nearest-neighbour search over an allow-listed collection. The tenant filter is the authenticated caller, never an argument, so one tenant cannot read another's rows |
+
+A read-only database role is the recommended credential; the read-only
+transaction and statement timeout are defense in depth behind the parser.
+
+## Resources, prompts, and completions
+
+Beyond tools, Arrowhead exposes the other MCP primitives, each running the same
+authorization, sanitization, rate limiting, audit, and kill-switch path:
+
+- **Resources**: the `doc://{path}` template reads one corpus document,
+  sanitized for its format, and `docs://index` lists the documents the caller
+  is authorized to read.
+- **Prompts**: `summarize_document` and `audit_corpus` are reusable
+  instructions that reference a resource or a tool rather than inlining
+  untrusted content.
+- **Completions**: argument completion suggests corpus paths as a caller types,
+  filtered by the caller's authorization so it never reveals a path they could
+  not read.
+
+## Use it as a library
+
+The server is also an importable foundation. `Arrowhead.call` and the HTTP
+transport route through the same dispatch, so an imported call runs the
+identical authorization, sanitization, and middleware path as a call over the
+wire:
+
+```python
+from arrowhead.app import Arrowhead
+
+app = Arrowhead()
+with app.as_principal("service:etl", {"docs:read"}):
+    result = await app.call("doc_read", {"path": "notes.md"})
+    document = await app.read_resource("doc://notes.md")
+```
+
+A call with no principal is anonymous, and every scoped component is denied, so
+the guarded path is the default whichever door a call comes through.
+
 ## Configuration
 
 Every setting is an environment variable with the `ARROWHEAD_` prefix; see
@@ -105,12 +163,15 @@ essentials:
 |---|---|---|
 | `ARROWHEAD_TRANSPORT` | `stdio` or `http` | `stdio` |
 | `ARROWHEAD_AUTH_ENABLED` | Turn on OAuth 2.1 verification | `false` |
-| `ARROWHEAD_OAUTH_ISSUER` / `_AUDIENCE` / `_JWKS_URI` | Authorization server details | — |
+| `ARROWHEAD_OAUTH_ISSUER` / `_AUDIENCE` / `_JWKS_URI` | Authorization server details | - |
 | `ARROWHEAD_JAIL_ROOT` | Directory `read_file` may read from | `sandbox` |
 | `ARROWHEAD_DOCS_ROOT` | Corpus directory the `doc_*` tools operate on | `documents` |
 | `ARROWHEAD_AUTHZ_POLICY` | Per-resource authorization grants (JSON) | safe default |
-| `ARROWHEAD_REDIS_URL` | Shared rate-limit store across replicas | — |
-| `ARROWHEAD_DISABLED_TOOLS` | Kill switch: comma-separated tool names | — |
+| `ARROWHEAD_SQL_DSN` | SQLAlchemy async URL for the SQL and pgvector connectors | - |
+| `ARROWHEAD_PGVECTOR_COLLECTIONS` | Allow-listed pgvector collections to search | - |
+| `ARROWHEAD_EGRESS_ALLOWED_HOSTS` / `_PORTS` | Outbound host and extra-port allowlists | - |
+| `ARROWHEAD_REDIS_URL` | Shared rate-limit store across replicas | - |
+| `ARROWHEAD_DISABLED_TOOLS` | Kill switch: comma-separated component names | - |
 
 ## Testing
 

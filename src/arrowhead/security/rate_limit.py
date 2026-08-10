@@ -11,6 +11,7 @@ in-process store is used and limits are per replica.
 """
 
 import time
+from collections import OrderedDict
 from typing import Protocol
 
 from fastmcp.exceptions import ToolError
@@ -18,6 +19,12 @@ from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from arrowhead.auth.identity import caller_identity
 from arrowhead.config import Settings
+
+# Cap on the number of distinct (caller, tool) buckets the in-memory store
+# retains, so a stream of unique caller identities cannot grow it without
+# bound. The least-recently-used bucket is evicted past the cap; a dropped
+# bucket is recreated at full capacity, identical to one that had refilled.
+_DEFAULT_MAX_ENTRIES = 100_000
 
 
 class RateLimitExceededError(ToolError):
@@ -35,11 +42,20 @@ class TokenBucketStore(Protocol):
 
 
 class InMemoryTokenBucketStore:
-    """Token buckets in process memory. Limits apply per replica."""
+    """Token buckets in process memory. Limits apply per replica.
 
-    def __init__(self, clock=time.monotonic) -> None:
+    Buckets are held in an LRU bounded by max_entries so a flood of distinct
+    caller identities cannot grow the store without bound. Evicting a bucket is
+    safe: it is recreated at full capacity, the same state it would reach once
+    fully refilled.
+    """
+
+    def __init__(
+        self, clock=time.monotonic, *, max_entries=_DEFAULT_MAX_ENTRIES
+    ) -> None:
         self._clock = clock
-        self._buckets: dict[str, tuple[float, float]] = {}
+        self._max_entries = max_entries
+        self._buckets: OrderedDict[str, tuple[float, float]] = OrderedDict()
 
     async def acquire(
         self, key: str, capacity: float, refill_per_second: float
@@ -51,6 +67,9 @@ class InMemoryTokenBucketStore:
         if allowed:
             tokens -= 1
         self._buckets[key] = (tokens, now)
+        self._buckets.move_to_end(key)
+        while len(self._buckets) > self._max_entries:
+            self._buckets.popitem(last=False)
         return allowed
 
     async def is_healthy(self) -> bool:
@@ -124,21 +143,38 @@ class RateLimitMiddleware(Middleware):
     async def on_call_tool(
         self, context: MiddlewareContext, call_next: CallNext
     ):
-        tool_name = context.message.name
-        # A tool without an explicit ceiling falls back to the default, so
-        # a newly added tool is never accidentally left unlimited.
-        limit = self._limits.get(tool_name, self._default)
+        await self._enforce(context.message.name)
+        return await call_next(context)
+
+    async def on_read_resource(
+        self, context: MiddlewareContext, call_next: CallNext
+    ):
+        # Resource reads share one per-caller bucket, keyed by the operation
+        # class rather than the resource URI, so an unbounded set of URIs
+        # cannot create an unbounded set of buckets.
+        await self._enforce("resource:read")
+        return await call_next(context)
+
+    async def on_get_prompt(
+        self, context: MiddlewareContext, call_next: CallNext
+    ):
+        await self._enforce("prompt:get")
+        return await call_next(context)
+
+    async def _enforce(self, component: str) -> None:
+        # A component without an explicit ceiling falls back to the default, so
+        # a newly added one is never accidentally left unlimited.
+        limit = self._limits.get(component, self._default)
         if limit is not None and limit > 0:
-            key = f"{caller_identity()}:{tool_name}"
+            key = f"{caller_identity()}:{component}"
             allowed = await self._store.acquire(
                 key, capacity=float(limit), refill_per_second=limit / 60.0
             )
             if not allowed:
                 raise RateLimitExceededError(
-                    f"rate limit exceeded for {tool_name}: "
+                    f"rate limit exceeded for {component}: "
                     f"{limit} calls per minute; retry shortly"
                 )
-        return await call_next(context)
 
     async def backend_healthy(self) -> bool:
         """Whether the bucket store is reachable, for readiness checks."""
@@ -160,8 +196,12 @@ def build_rate_limit_middleware(settings: Settings) -> RateLimitMiddleware | Non
         )
     else:
         store = InMemoryTokenBucketStore()
+    limits = settings.rate_limits_per_minute()
+    # The non-tool components rate-limit under their own operation-class keys.
+    limits["resource:read"] = settings.resource_read_per_minute
+    limits["prompt:get"] = settings.prompt_get_per_minute
     return RateLimitMiddleware(
         store,
-        settings.rate_limits_per_minute(),
+        limits,
         default_per_minute=settings.default_tool_per_minute,
     )

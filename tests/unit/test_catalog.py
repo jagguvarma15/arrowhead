@@ -12,7 +12,14 @@ import pytest
 
 from arrowhead.auth.scopes import TOOL_SCOPES
 from arrowhead.config import Settings
-from arrowhead.tools.catalog import TOOL_SPECS, ToolSpec
+from arrowhead.tools.catalog import (
+    PROMPT_SPECS,
+    RESOURCE_SPECS,
+    TOOL_SPECS,
+    PromptSpec,
+    ResourceSpec,
+    ToolSpec,
+)
 
 
 def test_tool_names_are_unique():
@@ -75,3 +82,44 @@ def test_derived_scopes_match_the_catalog():
 def test_derived_rate_limits_cover_every_catalog_tool():
     limits = Settings().rate_limits_per_minute()
     assert set(limits) == {spec.name for spec in TOOL_SPECS}
+
+
+def test_every_resource_and_prompt_declares_a_scope_and_rate_limit():
+    for spec in (*RESOURCE_SPECS, *PROMPT_SPECS):
+        assert spec.scope
+        assert spec.rate_limit_attr
+
+
+def test_resource_and_prompt_rate_limits_resolve_to_positive_ceilings():
+    settings = Settings()
+    for spec in (*RESOURCE_SPECS, *PROMPT_SPECS):
+        ceiling = getattr(settings, spec.rate_limit_attr)
+        assert isinstance(ceiling, int)
+        assert ceiling > 0
+
+
+def test_every_resource_and_prompt_loads_a_callable():
+    for spec in (*RESOURCE_SPECS, *PROMPT_SPECS):
+        assert callable(spec.load())
+
+
+def test_a_resource_without_a_scope_is_rejected():
+    with pytest.raises(ValueError):
+        ResourceSpec(
+            uri="doc://{path*}",
+            import_path="arrowhead.resources.documents:read_document_resource",
+            scope="",
+            rate_limit_attr="resource_read_per_minute",
+            description="x",
+        )
+
+
+def test_a_prompt_without_a_rate_limit_setting_is_rejected():
+    with pytest.raises(ValueError):
+        PromptSpec(
+            name="p",
+            import_path="arrowhead.prompts.library:summarize_document",
+            scope="docs:read",
+            rate_limit_attr="",
+            description="x",
+        )

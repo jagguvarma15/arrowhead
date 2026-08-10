@@ -118,6 +118,10 @@ class Settings(BaseSettings):
     # genuinely public but attacker-chosen host is otherwise fetchable. Empty
     # allows any public host; the SSRF guard still blocks private ranges.
     egress_allowed_hosts: str = ""
+    # Extra outbound ports permitted beyond 80 and 443 (comma-separated). Empty
+    # allows only the two web ports, so a public host cannot be used to reach an
+    # internal service listening on a non-web port.
+    egress_allowed_ports: str = ""
 
     # calculate
     expression_max_length: int = 200
@@ -141,6 +145,18 @@ class Settings(BaseSettings):
     # in addition where the database supports it.
     sql_timeout_seconds: float = 10.0
 
+    # pgvector collection search (postgres extra), over the sql_dsn database.
+    # Only these collections (comma-separated table names) may be searched; the
+    # tenant filter is the authenticated caller, not an argument. The column
+    # names default to a common convention and are overridable per deployment.
+    pgvector_collections: str = ""
+    pgvector_tenant_column: str = "tenant"
+    pgvector_id_column: str = "id"
+    pgvector_content_column: str = "content"
+    pgvector_embedding_column: str = "embedding"
+    pgvector_max_k: int = 50
+    pgvector_max_dimensions: int = 2000
+
     # abuse controls. Ceilings are calls per caller per minute; network-
     # bound safe_fetch gets a low ceiling, cheap calculate a high one.
     # With ARROWHEAD_REDIS_URL set, buckets live in Redis and the limits
@@ -155,6 +171,11 @@ class Settings(BaseSettings):
     doc_scan_per_minute: int = 20
     doc_write_per_minute: int = 30
     sql_query_per_minute: int = 60
+    vector_search_per_minute: int = 30
+    # Ceilings for the non-tool components. Reading a resource and getting a
+    # prompt are rate-limited per caller just as a tool call is.
+    resource_read_per_minute: int = 60
+    prompt_get_per_minute: int = 60
     # ceiling for any tool without an explicit limit above, so a new tool
     # is never silently unlimited
     default_tool_per_minute: int = 60
@@ -212,6 +233,23 @@ class Settings(BaseSettings):
             host.strip().lower()
             for host in self.egress_allowed_hosts.split(",")
             if host.strip()
+        )
+
+    def pgvector_collection_set(self) -> frozenset[str]:
+        """The vector collections a caller may search; empty allows none."""
+        return frozenset(
+            name.strip()
+            for name in self.pgvector_collections.split(",")
+            if name.strip()
+        )
+
+    def egress_allowed_ports_set(self) -> frozenset[int]:
+        """Extra ports the fetch tools may reach beyond 80 and 443; empty
+        allows only the two web ports."""
+        return frozenset(
+            int(port.strip())
+            for port in self.egress_allowed_ports.split(",")
+            if port.strip()
         )
 
 

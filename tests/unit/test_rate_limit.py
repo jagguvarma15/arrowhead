@@ -37,6 +37,14 @@ class TestInMemoryStore:
         assert await store.acquire("caller-b:fetch", 1, 0.0)
         assert await store.acquire("caller-a:calc", 1, 0.0)
 
+    async def test_buckets_are_bounded(self):
+        store = InMemoryTokenBucketStore(clock=Clock(), max_entries=100)
+        for i in range(5000):
+            await store.acquire(f"caller-{i}:fetch", 60, 1.0)
+        assert len(store._buckets) == 100
+        assert "caller-4999:fetch" in store._buckets
+        assert "caller-0:fetch" not in store._buckets
+
 
 class TestRedisStore:
     async def test_capacity_and_refill(self):

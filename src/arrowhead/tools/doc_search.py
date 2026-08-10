@@ -9,6 +9,8 @@ bytes are bounded, and every returned snippet is sanitized and carries the
 untrusted-data notice.
 """
 
+from typing import TypedDict
+
 import anyio
 from fastmcp.exceptions import ToolError
 
@@ -37,9 +39,27 @@ from arrowhead.security.search_match import (
 from arrowhead.store.document_store import DocumentStoreError, build_document_store
 
 
+class SearchMatch(TypedDict):
+    """One matching line: the document, the line number, and a sanitized snippet."""
+
+    path: str
+    line: int
+    snippet: str
+
+
+class SearchResult(TypedDict):
+    """The bounded, sanitized result of a corpus search."""
+
+    notice: str
+    query: str
+    match_count: int
+    truncated: bool
+    matches: list[SearchMatch]
+
+
 async def doc_search(
     query: str, path_prefix: str = "", use_regex: bool = False
-) -> dict:
+) -> SearchResult:
     """Search corpus documents for a query and return bounded, sanitized
     snippets. Literal by default; set use_regex when enabled. Example:
     doc_search(query="deadline", path_prefix="notes/").
@@ -77,14 +97,18 @@ def _run_search(query, path_prefix, use_regex, subject, settings) -> dict:
     limit = settings.search_max_results
     matches: list[dict] = []
     total_bytes = 0
-    truncated = False
+    result_capped = False
 
-    for info in store.list(
+    # The store applies the path prefix while it walks, so hitting the file
+    # cap before a match is reported as a truncated listing rather than as a
+    # silent zero result.
+    listing = store.list(
         extensions=settings.doc_allowed_extension_set(),
         max_files=settings.search_max_files,
-    ):
-        if path_prefix and not info.path.startswith(path_prefix):
-            continue
+        path_prefix=path_prefix,
+    )
+
+    for info in listing.items:
         if not authorizer.authorize(
             subject, ACTION_READ, Resource(kind=KIND_DOCUMENT, identifier=info.path)
         ).allowed:
@@ -111,15 +135,15 @@ def _run_search(query, path_prefix, use_regex, subject, settings) -> dict:
                 len(matches) >= limit
                 or total_bytes >= settings.search_max_total_bytes
             ):
-                truncated = True
+                result_capped = True
                 break
-        if truncated:
+        if result_capped:
             break
 
     return {
         "notice": UNTRUSTED_NOTICE,
         "query": query,
         "match_count": len(matches),
-        "truncated": truncated,
+        "truncated": listing.truncated or result_capped,
         "matches": matches,
     }

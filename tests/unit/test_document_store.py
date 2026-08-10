@@ -98,14 +98,29 @@ def test_list_filters_by_extension(tmp_path):
     (tmp_path / "c.md").write_text("m")
     store = make_store(tmp_path)
     txt_and_md = store.list(extensions=frozenset({".txt", ".md"}))
-    assert {info.path for info in txt_and_md} == {"a.txt", "c.md"}
+    assert {info.path for info in txt_and_md.items} == {"a.txt", "c.md"}
 
 
 def test_list_bounded_by_max_files(tmp_path):
     for i in range(10):
         (tmp_path / f"f{i}.txt").write_text("x")
     store = make_store(tmp_path)
-    assert len(store.list(max_files=3)) == 3
+    listing = store.list(max_files=3)
+    assert len(listing.items) == 3
+    assert listing.truncated is True
+
+
+def test_list_prefix_counts_matches_before_the_cap(tmp_path):
+    # Twenty files sort ahead of the one match under z/. A cap that counted
+    # the walk before filtering would return nothing and claim completeness.
+    for i in range(20):
+        (tmp_path / f"a{i:02d}.txt").write_text("x")
+    (tmp_path / "z").mkdir()
+    (tmp_path / "z" / "hit.txt").write_text("x")
+    store = make_store(tmp_path)
+    listing = store.list(max_files=10, path_prefix="z/")
+    assert [info.path for info in listing.items] == ["z/hit.txt"]
+    assert listing.truncated is False
 
 
 def test_list_skips_escaping_symlink(tmp_path, tmp_path_factory):
@@ -114,7 +129,7 @@ def test_list_skips_escaping_symlink(tmp_path, tmp_path_factory):
     (tmp_path / "alias.txt").symlink_to(outside)
     (tmp_path / "real.txt").write_text("ok")
     store = make_store(tmp_path)
-    assert {info.path for info in store.list()} == {"real.txt"}
+    assert {info.path for info in store.list().items} == {"real.txt"}
 
 
 def test_exists_reports_presence(tmp_path):
@@ -142,4 +157,6 @@ def test_stat_reports_metadata(tmp_path):
 
 def test_missing_root_lists_empty(tmp_path):
     store = make_store(tmp_path / "does-not-exist")
-    assert store.list() == []
+    listing = store.list()
+    assert listing.items == []
+    assert listing.truncated is False

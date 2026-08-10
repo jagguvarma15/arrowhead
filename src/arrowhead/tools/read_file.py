@@ -6,6 +6,10 @@ must still sit inside the jail root. A symlink inside the jail that points
 outside it fails the containment check and is refused. Error messages
 never echo the requested path, so a probing caller learns nothing about
 the filesystem layout from them.
+
+Holding the tool's scope is necessary but not sufficient: the read is also
+authorized per file against the policy, so a deployment can narrow a caller
+to a sub-path of the jail rather than the whole of it.
 """
 
 from pathlib import Path
@@ -13,6 +17,8 @@ from pathlib import Path
 import anyio
 from fastmcp.exceptions import ToolError
 
+from arrowhead.authz.enforce import authorize_action
+from arrowhead.authz.policy import ACTION_READ, KIND_FILE, Resource
 from arrowhead.config import get_settings
 from arrowhead.security.input_validation import (
     ValidationError,
@@ -37,6 +43,7 @@ async def read_file(path: str) -> str:
 async def read_jailed_file(path: str) -> str:
     settings = get_settings()
     validate_relative_path(path)
+    authorize_action(ACTION_READ, Resource(kind=KIND_FILE, identifier=path))
     return await anyio.to_thread.run_sync(
         _read_inside_jail,
         settings.jail_root,

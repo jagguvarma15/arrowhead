@@ -16,7 +16,7 @@ specific document.
 
 from fastmcp.server.auth import AuthCheck, require_scopes
 
-from arrowhead.tools.catalog import TOOL_SPECS
+from arrowhead.tools.catalog import PROMPT_SPECS, RESOURCE_SPECS, TOOL_SPECS
 
 # Derived from the catalog so a tool's scope is declared in exactly one place.
 TOOL_SCOPES: dict[str, str] = {spec.name: spec.scope for spec in TOOL_SPECS}
@@ -27,6 +27,14 @@ def scope_checks(tool_name: str) -> list[AuthCheck]:
     return [require_scopes(TOOL_SCOPES[tool_name])]
 
 
+def checks_for_scope(scope: str) -> list[AuthCheck]:
+    """Auth checks enforcing a single scope, for any component."""
+    return [require_scopes(scope)]
+
+
 def supported_scopes() -> list[str]:
     """All scopes this server understands, for resource metadata."""
-    return sorted(set(TOOL_SCOPES.values()))
+    scopes = {spec.scope for spec in TOOL_SPECS}
+    scopes |= {spec.scope for spec in RESOURCE_SPECS}
+    scopes |= {spec.scope for spec in PROMPT_SPECS}
+    return sorted(scopes)

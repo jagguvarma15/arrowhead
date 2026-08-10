@@ -17,7 +17,7 @@ from arrowhead.observability.telemetry import configure_telemetry
 from arrowhead.observability.tracing import TracingMiddleware
 from arrowhead.security.kill_switch import KillSwitchMiddleware
 from arrowhead.security.rate_limit import build_rate_limit_middleware
-from arrowhead.tools.registry import register_tools
+from arrowhead.tools.registry import register_components
 
 
 def create_server() -> FastMCP:
@@ -62,7 +62,7 @@ def create_server() -> FastMCP:
         middleware=middleware,
         lifespan=lifespan,
     )
-    register_tools(mcp, enforce_scopes=settings.auth_enabled)
+    register_components(mcp, enforce_scopes=settings.auth_enabled)
     attach_list_cache_hints(mcp, settings.tool_list_ttl_ms)
     register_health_routes(mcp, rate_limiter)
     return mcp

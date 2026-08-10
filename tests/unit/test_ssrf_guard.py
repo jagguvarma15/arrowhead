@@ -69,6 +69,29 @@ async def test_unresolvable_host_rejected():
         await resolve_pinned("http://nope.invalid/", getaddrinfo=failing)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.com:22/",
+        "http://example.com:6379/",
+        "http://example.com:8080/",
+    ],
+)
+async def test_non_web_port_rejected(url, make_resolver):
+    with pytest.raises(BlockedURLError):
+        await resolve_pinned(url, getaddrinfo=make_resolver("93.184.216.34"))
+
+
+async def test_configured_extra_port_allowed(make_resolver):
+    target = await resolve_pinned(
+        "https://example.com:8443/x",
+        getaddrinfo=make_resolver("93.184.216.34"),
+        allowed_ports=frozenset({8443}),
+    )
+    assert target.port == 8443
+    assert target.request_url == "https://93.184.216.34:8443/x"
+
+
 async def test_public_host_is_pinned(make_resolver):
     target = await resolve_pinned(
         "https://example.com/page?q=1", getaddrinfo=make_resolver("93.184.216.34")

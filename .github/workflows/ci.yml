@@ -8,6 +8,22 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      # Postgres with pgvector, so the SQL and pgvector integration tests run
+      # against a real database rather than being skipped.
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: arrow
+          POSTGRES_PASSWORD: arrow
+          POSTGRES_DB: arrow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +43,8 @@ jobs:
         run: uv run ruff check src/ tests/
 
       - name: Test
+        env:
+          ARROWHEAD_POSTGRES_TEST_URL: postgresql+asyncpg://arrow:arrow@localhost:5432/arrow
         run: uv run pytest tests/ -v
 
   security:

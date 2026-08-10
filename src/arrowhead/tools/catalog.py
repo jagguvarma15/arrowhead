@@ -27,6 +27,9 @@ class ToolSpec:
     rate_limit_attr: the Settings attribute holding this tool's per-minute
         ceiling, so the limit stays configurable per deployment.
     annotations: MCP behavior hints (read-only, destructive, open-world).
+    icons: optional mcp.types.Icon entries for the tool. The built-in tools
+        ship without icons so the tool list that rides in every model context
+        stays lean; a deployment may attach its own.
     """
 
     name: str
@@ -34,6 +37,7 @@ class ToolSpec:
     scope: str
     rate_limit_attr: str
     annotations: dict = field(compare=False)
+    icons: tuple = field(default=(), compare=False)
 
     def __post_init__(self) -> None:
         if not self.scope:
@@ -45,8 +49,74 @@ class ToolSpec:
 
     def load(self) -> Callable:
         """Import and return the tool's implementation callable."""
-        module_name, _, attribute = self.import_path.partition(":")
-        return getattr(importlib.import_module(module_name), attribute)
+        return _load_callable(self.import_path)
+
+
+def _load_callable(import_path: str) -> Callable:
+    """Import and return the "module:attribute" callable named by import_path."""
+    module_name, _, attribute = import_path.partition(":")
+    return getattr(importlib.import_module(module_name), attribute)
+
+
+@dataclass(frozen=True)
+class ResourceSpec:
+    """A resource or resource template the server exposes, and its guards.
+
+    uri: the resource URI, a template when it contains a {param} such as
+        "doc://{path*}".
+    import_path: "module:attribute" locating the handler.
+    scope: the OAuth scope a caller must hold to read the resource.
+    rate_limit_attr: the Settings attribute holding its per-minute ceiling.
+    description / mime_type / icons: presentation metadata.
+    """
+
+    uri: str
+    import_path: str
+    scope: str
+    rate_limit_attr: str
+    description: str
+    mime_type: str | None = None
+    icons: tuple = field(default=(), compare=False)
+
+    def __post_init__(self) -> None:
+        if not self.scope:
+            raise ValueError(f"resource {self.uri!r} must declare an OAuth scope")
+        if not self.rate_limit_attr:
+            raise ValueError(
+                f"resource {self.uri!r} must declare a rate-limit setting"
+            )
+
+    def load(self) -> Callable:
+        return _load_callable(self.import_path)
+
+
+@dataclass(frozen=True)
+class PromptSpec:
+    """A prompt the server exposes, and its guards.
+
+    name: the prompt name clients request.
+    import_path: "module:attribute" locating the handler.
+    scope: the OAuth scope a caller must hold to get the prompt.
+    rate_limit_attr: the Settings attribute holding its per-minute ceiling.
+    """
+
+    name: str
+    import_path: str
+    scope: str
+    rate_limit_attr: str
+    description: str
+    icons: tuple = field(default=(), compare=False)
+
+    def __post_init__(self) -> None:
+        if not self.scope:
+            raise ValueError(f"prompt {self.name!r} must declare an OAuth scope")
+        if not self.rate_limit_attr:
+            raise ValueError(
+                f"prompt {self.name!r} must declare a rate-limit setting"
+            )
+
+    def load(self) -> Callable:
+        return _load_callable(self.import_path)
 
 
 TOOL_SPECS: list[ToolSpec] = [
@@ -149,5 +219,53 @@ TOOL_SPECS: list[ToolSpec] = [
             "destructiveHint": False,
             "openWorldHint": False,
         },
+    ),
+    ToolSpec(
+        name="vector_search",
+        import_path="arrowhead.connectors.pgvector:vector_search",
+        scope="vector:search",
+        rate_limit_attr="vector_search_per_minute",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+]
+
+
+RESOURCE_SPECS: list[ResourceSpec] = [
+    ResourceSpec(
+        uri="docs://index",
+        import_path="arrowhead.resources.documents:corpus_index",
+        scope="docs:search",
+        rate_limit_attr="resource_read_per_minute",
+        description="The corpus documents the caller is authorized to read.",
+        mime_type="application/json",
+    ),
+    ResourceSpec(
+        uri="doc://{path*}",
+        import_path="arrowhead.resources.documents:read_document_resource",
+        scope="docs:read",
+        rate_limit_attr="resource_read_per_minute",
+        description="One corpus document, sanitized for its format.",
+    ),
+]
+
+
+PROMPT_SPECS: list[PromptSpec] = [
+    PromptSpec(
+        name="summarize_document",
+        import_path="arrowhead.prompts.library:summarize_document",
+        scope="docs:read",
+        rate_limit_attr="prompt_get_per_minute",
+        description="Summarize a corpus document, treating it as untrusted data.",
+    ),
+    PromptSpec(
+        name="audit_corpus",
+        import_path="arrowhead.prompts.library:audit_corpus",
+        scope="docs:scan",
+        rate_limit_attr="prompt_get_per_minute",
+        description="Scan the corpus for secrets and PII and summarize findings.",
     ),
 ]
