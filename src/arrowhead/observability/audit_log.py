@@ -38,6 +38,45 @@ class AuditLogMiddleware(Middleware):
         self, context: MiddlewareContext, call_next: CallNext
     ):
         message = context.message
+        return await self._audited(
+            context,
+            call_next,
+            base={
+                "event": "tool_call",
+                "tool": message.name,
+                "arguments": describe_arguments(message.arguments),
+            },
+            metric_label=message.name,
+        )
+
+    async def on_read_resource(
+        self, context: MiddlewareContext, call_next: CallNext
+    ):
+        return await self._audited(
+            context,
+            call_next,
+            base={"event": "read_resource", "resource": str(context.message.uri)},
+            metric_label="resource:read",
+        )
+
+    async def on_get_prompt(
+        self, context: MiddlewareContext, call_next: CallNext
+    ):
+        message = context.message
+        return await self._audited(
+            context,
+            call_next,
+            base={
+                "event": "get_prompt",
+                "prompt": message.name,
+                "arguments": describe_arguments(getattr(message, "arguments", None)),
+            },
+            metric_label="prompt:get",
+        )
+
+    async def _audited(
+        self, context: MiddlewareContext, call_next: CallNext, *, base, metric_label
+    ):
         started = time.perf_counter()
         status = "ok"
         error_type = None
@@ -56,14 +95,12 @@ class AuditLogMiddleware(Middleware):
         finally:
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
             record = {
-                "event": "tool_call",
+                **base,
                 "caller": caller_identity(),
-                "tool": message.name,
-                "arguments": describe_arguments(message.arguments),
                 "status": status,
                 "duration_ms": duration_ms,
             }
             if error_type is not None:
                 record["error_type"] = error_type
             logger.info(json.dumps(record, sort_keys=True))
-            record_tool_call(message.name, status, duration_ms)
+            record_tool_call(metric_label, status, duration_ms)
