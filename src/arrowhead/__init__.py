@@ -5,9 +5,13 @@ stays light and does not pull in the server, its middleware, or any connector
 driver until something is actually used.
 """
 
+from importlib.metadata import PackageNotFoundError, version as _installed_version
 from typing import TYPE_CHECKING
 
-__version__ = "0.1.0"
+try:
+    __version__ = _installed_version("arrowhead")
+except PackageNotFoundError:  # pragma: no cover - running from a tree with no metadata
+    __version__ = "0.0.0"
 
 __all__ = [
     "Arrowhead",
