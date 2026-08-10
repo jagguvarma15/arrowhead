@@ -177,6 +177,11 @@ class Settings(BaseSettings):
     doc_write_per_minute: int = 30
     sql_query_per_minute: int = 60
     vector_search_per_minute: int = 30
+    # Handle-based async tasks: starting one is expensive (a full background
+    # scan), polling is cheap, cancelling is in between.
+    task_start_per_minute: int = 10
+    task_get_per_minute: int = 120
+    task_update_per_minute: int = 30
     # Ceilings for the non-tool components. Reading a resource, getting a
     # prompt, and completing an argument are each rate-limited per caller just
     # as a tool call is, so no request path is left unmetered.
