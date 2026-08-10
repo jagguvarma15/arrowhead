@@ -7,9 +7,13 @@ pgvector store) to AI agents safely. The safe path is the default path: OAuth
 2.1 authorization, per-resource authorization, SSRF and path-traversal defenses,
 content sanitization and provenance, per-caller rate limiting, structured audit
 logging, and token-efficient schemas apply to every component, and there is no
-unguarded path. It targets MCP specification 2025-11-25 and exposes the full
-modern surface: tools with structured output, resources and resource templates,
-prompts, and argument completions.
+unguarded path. It targets the 2026-07-28 MCP specification at the application
+level while running on the stable FastMCP line, which speaks the 2025-11-25
+wire, and exposes the full modern surface: tools with structured output,
+resources and resource templates, prompts, argument completions, and
+handle-based asynchronous tasks. [`docs/SECURITY.md`](docs/SECURITY.md) records
+exactly which 2026-07-28 changes are adopted now and which are deferred until a
+stable SDK speaks the new wire.
 
 Security lives inside each tool, resource, and prompt rather than in a proxy in
 front of them, so the guarantees hold whether a call arrives over HTTP or the
@@ -132,7 +136,11 @@ authorization, sanitization, rate limiting, audit, and kill-switch path:
   untrusted content.
 - **Completions**: argument completion suggests corpus paths as a caller types,
   filtered by the caller's authorization so it never reveals a path they could
-  not read.
+  not read, and rate-limited, kill-switchable, and audited like a tool call.
+- **Async tasks**: `scan_corpus_async` starts a background corpus scan and
+  returns a server-minted handle; `task_get` polls it and `task_update` cancels
+  it. A task is owned by the caller that started it, so only that caller can poll
+  or cancel it, following the 2026-07-28 stateless, handle-based pattern.
 
 ## Use it as a library
 
@@ -163,6 +171,7 @@ essentials:
 |---|---|---|
 | `ARROWHEAD_TRANSPORT` | `stdio` or `http` | `stdio` |
 | `ARROWHEAD_AUTH_ENABLED` | Turn on OAuth 2.1 verification | `false` |
+| `ARROWHEAD_ALLOW_INSECURE_HTTP` | Permit HTTP with auth disabled (trusted-network test only) | `false` |
 | `ARROWHEAD_OAUTH_ISSUER` / `_AUDIENCE` / `_JWKS_URI` | Authorization server details | - |
 | `ARROWHEAD_JAIL_ROOT` | Directory `read_file` may read from | `sandbox` |
 | `ARROWHEAD_DOCS_ROOT` | Corpus directory the `doc_*` tools operate on | `documents` |
