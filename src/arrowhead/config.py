@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -245,6 +246,27 @@ class Settings(BaseSettings):
             for name in self.pgvector_collections.split(",")
             if name.strip()
         )
+
+    @field_validator("egress_allowed_ports")
+    @classmethod
+    def _validate_egress_ports(cls, value: str) -> str:
+        """Reject a non-numeric or out-of-range extra port at startup rather
+        than raising on the first fetch."""
+        for entry in value.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            try:
+                port = int(entry)
+            except ValueError:
+                raise ValueError(
+                    f"egress_allowed_ports has a non-numeric port: {entry!r}"
+                ) from None
+            if not 1 <= port <= 65535:
+                raise ValueError(
+                    f"egress_allowed_ports has an out-of-range port: {port}"
+                )
+        return value
 
     def egress_allowed_ports_set(self) -> frozenset[int]:
         """Extra ports the fetch tools may reach beyond 80 and 443; empty
