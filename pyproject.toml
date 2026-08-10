@@ -44,7 +44,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "cryptography>=44.0.0",
+    "cryptography>=50.0.0",
     "fakeredis[lua]>=2.36.2",
     "pyjwt[crypto]>=2.10.0",
     "pytest>=9.1.1",
