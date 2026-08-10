@@ -1,14 +1,14 @@
 [project]
 name = "arrowhead"
-version = "0.1.0"
-description = "Hardened MCP server reference implementation: OAuth 2.1, SSRF and path-traversal protection, sandboxed evaluation, and token-efficient schemas."
+version = "0.2.0"
+description = "The secure data plane for AI agents: a hardened MCP server exposing tools, resources, prompts, and completions with OAuth 2.1, per-resource authorization, SSRF and path-traversal defenses, and content provenance."
 readme = "README.md"
 authors = [
     { name = "Jagadesh Varma Nadimpalli", email = "79473081+jagguvarma15@users.noreply.github.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "fastmcp>=3.4.4",
+    "fastmcp>=3.4.6",
     "httpx>=0.28.1",
     "opentelemetry-exporter-otlp-proto-http>=1.44.0",
     "opentelemetry-sdk>=1.44.0",
@@ -30,6 +30,13 @@ sql = [
     "sqlalchemy[asyncio]>=2.0.0",
     "aiosqlite>=0.20.0",
 ]
+# The Postgres and pgvector connector. Installed on top of the sql extra
+# (arrowhead[sql,postgres]) so the async Postgres driver and the pgvector
+# types are carried only by a deployment that serves a Postgres database.
+postgres = [
+    "asyncpg>=0.30.0",
+    "pgvector>=0.3.6",
+]
 
 [build-system]
 requires = ["uv_build>=0.11.2,<0.12.0"]
@@ -37,7 +44,9 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "cryptography>=44.0.0",
     "fakeredis[lua]>=2.36.2",
+    "pyjwt[crypto]>=2.10.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.15.21",
