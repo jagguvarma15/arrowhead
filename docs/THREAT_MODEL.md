@@ -88,6 +88,34 @@ Every tool argument is attacker-controlled input.
   infer the presence of matching or sensitive data within what the policy lets
   it access.
 
+### Data connectors (`sql_query`, `vector_search`)
+
+- **Surface:** arbitrary SQL and vector queries against a configured database.
+  The primary risks are write/DDL smuggling, injection through table or column
+  names, denial of service through an expensive query, and cross-tenant reads.
+- **Mitigations:** a real SQL parser admits only a single read-only `SELECT` and
+  executes the canonical statement, not the raw text; every table (or a sentinel
+  for a tableless query) is authorized; the query runs in a read-only
+  transaction under a server-side statement timeout, with a read-only role
+  recommended. For `vector_search`, the collection is allow-listed, all
+  interpolated identifiers pass a strict guard, values are bound parameters, and
+  the tenant filter is the authenticated caller injected server-side.
+- **Residual risk:** the parser and the read-only transaction are the code-level
+  controls; a misconfigured deployment that grants a writable role or a broad
+  authorization policy widens the surface. Tenant isolation depends on the
+  collection carrying a correct tenant column.
+
+### Resources, prompts, and completions
+
+- **Surface:** a second path to corpus content (resources), a server-provided
+  instruction channel (prompts), and a discovery oracle (completions).
+- **Mitigations:** resource reads run the same per-resource authorization and
+  sanitization as `doc_read`; prompts reference resources or tools rather than
+  inlining untrusted content and sanitize their arguments; completions are
+  filtered by the caller's read authorization and bounded.
+- **Residual risk:** completions confirm which authorized paths exist, the same
+  inference a caller with search access already has.
+
 ## Cross-cutting
 
 - **Authentication:** enforced over HTTP; audience validation is mandatory and
