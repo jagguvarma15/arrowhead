@@ -93,28 +93,43 @@ Every tool argument is attacker-controlled input.
 - **Surface:** arbitrary SQL and vector queries against a configured database.
   The primary risks are write/DDL smuggling, injection through table or column
   names, denial of service through an expensive query, and cross-tenant reads.
-- **Mitigations:** a real SQL parser admits only a single read-only `SELECT` and
-  executes the canonical statement, not the raw text; every table (or a sentinel
-  for a tableless query) is authorized; the query runs in a read-only
-  transaction under a server-side statement timeout, with a read-only role
-  recommended. For `vector_search`, the collection is allow-listed, all
-  interpolated identifiers pass a strict guard, values are bound parameters, and
-  the tenant filter is the authenticated caller injected server-side.
-- **Residual risk:** the parser and the read-only transaction are the code-level
-  controls; a misconfigured deployment that grants a writable role or a broad
-  authorization policy widens the surface. Tenant isolation depends on the
-  collection carrying a correct tenant column.
+- **Mitigations:** a real SQL parser (with bounded nesting so it cannot be made
+  to exhaust its stack) admits only a single read-only `SELECT`, rejecting
+  stacked statements, writes, DDL, `SET`, row-locking clauses, and a denylist of
+  side-effecting, file, network, and administrative functions. Every referenced
+  table is authorized; a tableless query is authorized against a dedicated
+  resource the default policy does not grant. On Postgres the query runs in a
+  read-only transaction under a server-side statement timeout; a read-only role
+  is the primary control on every engine. Results are bounded by byte, row, and
+  column count. For `vector_search`, the connector requires Postgres, the
+  collection is allow-listed, all interpolated identifiers pass a strict guard,
+  the embedding is a bound parameter of finite numbers, and the tenant filter is
+  the authenticated caller injected server-side.
+- **Residual risk:** the parser and function denylist are defense in depth, not a
+  sandbox; a misconfigured deployment that grants a writable role or a broad
+  authorization policy widens the surface, and the denylist is not exhaustive.
+  On non-Postgres engines there is no server-side read-only transaction, so the
+  read-only role and the parser carry the weight; on SQLite an expensive query
+  cannot be interrupted mid-flight by the in-process deadline, so SQLite is a
+  demo backend, not a hardened multi-tenant target. Tenant isolation depends on
+  the collection carrying a correct tenant column.
 
-### Resources, prompts, and completions
+### Resources, prompts, completions, and tasks
 
 - **Surface:** a second path to corpus content (resources), a server-provided
-  instruction channel (prompts), and a discovery oracle (completions).
+  instruction channel (prompts), a discovery oracle (completions), and
+  server-minted handles for background work (tasks).
 - **Mitigations:** resource reads run the same per-resource authorization and
   sanitization as `doc_read`; prompts reference resources or tools rather than
   inlining untrusted content and sanitize their arguments; completions are
-  filtered by the caller's read authorization and bounded.
+  filtered by the caller's read authorization, bounded, and wrapped so they pass
+  the same rate limit, kill switch, and audit line as a tool call even though the
+  low-level path bypasses the middleware chain; tasks are authorized at start,
+  owner-scoped so a caller can only poll or cancel its own, and bounded in
+  count.
 - **Residual risk:** completions confirm which authorized paths exist, the same
-  inference a caller with search access already has.
+  inference a caller with search access already has. The task registry is in
+  process, so a task is visible only on the instance that created it.
 
 ## Cross-cutting
 
@@ -148,4 +163,15 @@ Every tool argument is attacker-controlled input.
   annotations but does not yet expose a pinned tool-definition hash for clients
   to re-consent against.
 - **Denial of service beyond per-caller rate limits.** Network-level flood
-  protection is the platform's job.
+  protection is the platform's job. The document quota check walks the corpus on
+  each write, which is O(corpus size); the in-memory rate-limit store is
+  per-replica, and while the Redis store reads time from the server, an operator
+  running the in-memory store across replicas with skewed clocks gets
+  per-replica limits.
+- **Filesystem races on the read path.** The document store and `read_file`
+  resolve a path and then open it; an attacker with write access inside the jail
+  could swap a path for a symlink between the two steps (a TOCTOU window). Atomic
+  writes are hard-link based, which assumes the filesystem supports hard links.
+- **Multi-line and non-ASCII-normalized secrets.** `doc_scan` is line-oriented,
+  so a secret split across lines (a wrapped private key) is detected by its
+  header only, and its tag is of the NFC-normalized text, not the on-disk bytes.
