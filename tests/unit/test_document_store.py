@@ -160,3 +160,13 @@ def test_missing_root_lists_empty(tmp_path):
     listing = store.list()
     assert listing.items == []
     assert listing.truncated is False
+
+
+def test_temp_write_files_are_not_listed_or_counted(tmp_path):
+    store = make_store(tmp_path)
+    (tmp_path / "real.md").write_text("hello")
+    # An in-flight atomic write leaves a temporary file in the corpus; it must
+    # not be enumerated or counted against the quota.
+    (tmp_path / ".arrowhead-tmp-abcd.md").write_text("half-written")
+    assert {info.path for info in store.list().items} == {"real.md"}
+    assert store.total_size() == len("hello")
