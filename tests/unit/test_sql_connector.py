@@ -176,5 +176,59 @@ async def test_the_dialect_is_derived_from_the_dsn():
 
     assert _dialect_from_dsn("sqlite+aiosqlite:///x.db") == "sqlite"
     assert _dialect_from_dsn("postgresql+asyncpg://u@h/db") == "postgres"
-    guarded = guard_read_query("SELECT * FROM users FOR UPDATE", dialect="postgres")
-    assert "FOR UPDATE" in guarded.sql
+    guarded = guard_read_query(
+        "SELECT * FROM users WHERE name ILIKE 'a%'", dialect="postgres"
+    )
+    assert "ILIKE" in guarded.sql
+
+
+def test_guard_rejects_deeply_nested_query():
+    from arrowhead.connectors.sql import SqlGuardError, guard_read_query
+
+    with pytest.raises(SqlGuardError):
+        guard_read_query("SELECT " + "(" * 200 + "1" + ")" * 200, dialect="sqlite")
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT pg_read_file('/etc/passwd')",
+        "SELECT dblink_exec('a', 'b')",
+        "SELECT query_to_xml('select 1', true, true, '')",
+        "SELECT pg_terminate_backend(1) FROM pg_stat_activity",
+        "SELECT LOAD_FILE('/etc/passwd')",
+    ],
+)
+def test_guard_rejects_denied_functions(query):
+    from arrowhead.connectors.sql import SqlGuardError, guard_read_query
+
+    with pytest.raises(SqlGuardError):
+        guard_read_query(query, dialect="postgres")
+
+
+def test_guard_rejects_row_locking():
+    from arrowhead.connectors.sql import SqlGuardError, guard_read_query
+
+    with pytest.raises(SqlGuardError):
+        guard_read_query("SELECT * FROM t FOR UPDATE", dialect="postgres")
+
+
+def test_default_policy_denies_a_tableless_query():
+    from arrowhead.authz.policy import (
+        ACTION_QUERY,
+        KIND_TABLE,
+        KIND_TABLELESS,
+        Resource,
+        build_authorizer,
+    )
+    from arrowhead.config import Settings
+
+    authorizer = build_authorizer(Settings(auth_enabled=True))
+    # a real referenced table is queryable by default
+    assert authorizer.authorize(
+        "a", ACTION_QUERY, Resource(KIND_TABLE, "users")
+    ).allowed
+    # a functions-only (tableless) query is not
+    assert not authorizer.authorize(
+        "a", ACTION_QUERY, Resource(KIND_TABLELESS, "(no-table)")
+    ).allowed
