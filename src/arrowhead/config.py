@@ -159,6 +159,10 @@ class Settings(BaseSettings):
     doc_scan_per_minute: int = 20
     doc_write_per_minute: int = 30
     sql_query_per_minute: int = 60
+    # Ceilings for the non-tool components. Reading a resource and getting a
+    # prompt are rate-limited per caller just as a tool call is.
+    resource_read_per_minute: int = 60
+    prompt_get_per_minute: int = 60
     # ceiling for any tool without an explicit limit above, so a new tool
     # is never silently unlimited
     default_tool_per_minute: int = 60
