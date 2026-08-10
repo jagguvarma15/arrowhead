@@ -1,0 +1,179 @@
+"""pgvector similarity search with server-side tenant isolation.
+
+vector_search runs a bounded nearest-neighbour query against a pgvector
+collection. The collection must be one a deployment allow-listed, so the table
+name is never taken raw from the caller, and the tenant filter is derived from
+the authenticated caller rather than from an argument, so one tenant can never
+read another's rows even by asking. The query embedding is bound as a
+parameter, results are capped, string cells are sanitized, and the payload is
+wrapped as untrusted data.
+
+The connection pool, the dialect-derived read-only transaction, and the
+server-side statement timeout are shared with the SQL connector, so a vector
+search runs under the same read-only, time-bounded guarantees as a SQL read.
+"""
+
+import json
+import re
+from datetime import UTC, datetime
+
+import anyio
+from fastmcp.exceptions import ToolError
+
+from arrowhead.authz.enforce import authorize_action
+from arrowhead.authz.policy import ACTION_QUERY, KIND_TABLE, Resource
+from arrowhead.config import get_settings
+from arrowhead.connectors.sql import (
+    _TIMEOUT_GRACE_SECONDS,
+    SqlConnectorError,
+    _cell,
+    _get_engine,
+    _session_guards,
+)
+from arrowhead.content.provenance import ProvenancedResult, wrap_content
+from arrowhead.content.text_safe import sanitize_text
+
+# A schema-qualified SQL identifier: the only shape a table or column name may
+# take before it is interpolated into a query. Values still come from the
+# allowlist or from configuration, never raw from the caller.
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?")
+
+
+async def vector_search(
+    collection: str, embedding: list[float], k: int = 10
+) -> ProvenancedResult:
+    """Find the nearest rows in a pgvector collection to a query embedding,
+    scoped to the caller's tenant. Only an allow-listed collection may be
+    searched, the tenant is the caller, and results are capped. Example:
+    vector_search(collection="documents", embedding=[0.1, 0.2, ...], k=5).
+    """
+    settings = get_settings()
+    if not settings.sql_dsn:
+        raise ToolError("the vector connector is not configured")
+    collection = _validate_collection(collection, settings)
+    literal = _validate_embedding(embedding, settings)
+    k = _bounded_k(k, settings)
+
+    # The tenant is the authenticated caller, never an argument, so the WHERE
+    # clause cannot be widened to another tenant's rows.
+    tenant = authorize_action(
+        ACTION_QUERY, Resource(kind=KIND_TABLE, identifier=collection)
+    )
+
+    try:
+        rows, columns, truncated = await _search(
+            collection, literal, k, tenant, settings
+        )
+    except SqlConnectorError as exc:
+        raise ToolError(str(exc)) from exc
+
+    payload = json.dumps(rows, ensure_ascii=False, sort_keys=True, default=str)
+    wrapped = wrap_content(
+        payload,
+        source=f"pgvector:{collection}",
+        content_format="json",
+        retrieved_at=datetime.now(UTC).isoformat(),
+    )
+    wrapped["metadata"]["columns"] = columns
+    wrapped["metadata"]["row_count"] = len(rows)
+    wrapped["metadata"]["truncated"] = truncated
+    return wrapped
+
+
+def _validate_collection(collection: str, settings) -> str:
+    allowed = settings.pgvector_collection_set()
+    if not allowed:
+        raise ToolError("no vector collections are configured")
+    if collection not in allowed:
+        raise ToolError("unknown vector collection")
+    return _safe_identifier(collection)
+
+
+def _validate_embedding(embedding, settings) -> str:
+    if not isinstance(embedding, list) or not embedding:
+        raise ToolError("embedding must be a non-empty list of numbers")
+    if len(embedding) > settings.pgvector_max_dimensions:
+        raise ToolError(
+            f"embedding exceeds {settings.pgvector_max_dimensions} dimensions"
+        )
+    for value in embedding:
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ToolError("embedding values must be numbers")
+    return "[" + ",".join(repr(float(v)) for v in embedding) + "]"
+
+
+def _bounded_k(k, settings) -> int:
+    try:
+        k = int(k)
+    except (TypeError, ValueError) as exc:
+        raise ToolError("k must be an integer") from exc
+    return max(1, min(k, settings.pgvector_max_k))
+
+
+def _safe_identifier(name: str) -> str:
+    if not _IDENTIFIER.fullmatch(name):
+        raise ToolError("invalid identifier")
+    return name
+
+
+async def _search(collection, literal, k, tenant, settings):
+    try:
+        from sqlalchemy import text
+        from sqlalchemy.exc import SQLAlchemyError
+    except ImportError as exc:  # pragma: no cover - only without the extra
+        raise SqlConnectorError(
+            "the SQL connector requires the 'sql' extra: install arrowhead[sql]"
+        ) from exc
+
+    # Every interpolated name is either allow-listed (the collection) or comes
+    # from configuration, and each passes the strict identifier guard, so the
+    # only caller-supplied inputs (the embedding, tenant, and k) are bound
+    # parameters. The S608 construction warning is therefore a false positive.
+    id_col = _safe_identifier(settings.pgvector_id_column)
+    content_col = _safe_identifier(settings.pgvector_content_column)
+    tenant_col = _safe_identifier(settings.pgvector_tenant_column)
+    embedding_col = _safe_identifier(settings.pgvector_embedding_column)
+    query = (
+        f"SELECT {id_col}, {content_col}, "  # noqa: S608
+        f"{embedding_col} <=> (:q)::vector AS distance "
+        f"FROM {collection} "
+        f"WHERE {tenant_col} = :tenant "
+        f"ORDER BY {embedding_col} <=> (:q)::vector "
+        "LIMIT :k"
+    )
+    bind = {"q": literal, "tenant": tenant, "k": k}
+
+    engine = _get_engine(settings.sql_dsn)
+    guards = _session_guards("postgres", settings)
+    rows: list[dict] = []
+    truncated = False
+    total_bytes = 0
+    try:
+        with anyio.fail_after(settings.sql_timeout_seconds + _TIMEOUT_GRACE_SECONDS):
+            async with engine.connect() as conn:
+                async with conn.begin():
+                    for statement in guards:
+                        await conn.execute(text(statement))
+                    result = await conn.stream(text(query), bind)
+                    columns = [sanitize_text(str(c)) for c in result.keys()]
+                    async for row in result:
+                        record = {
+                            sanitize_text(str(column)): _cell(value)
+                            for column, value in row._mapping.items()
+                        }
+                        rows.append(record)
+                        total_bytes += len(str(record))
+                        if (
+                            len(rows) >= settings.sql_max_rows
+                            or total_bytes > settings.sql_max_bytes
+                        ):
+                            truncated = True
+                            break
+                    await result.close()
+    except TimeoutError as exc:
+        raise SqlConnectorError("the query exceeded its time budget") from exc
+    except SQLAlchemyError as exc:
+        raise SqlConnectorError(f"query failed: {type(exc).__name__}") from exc
+    except Exception as exc:
+        raise SqlConnectorError(f"query failed: {type(exc).__name__}") from exc
+    return rows, columns, truncated
