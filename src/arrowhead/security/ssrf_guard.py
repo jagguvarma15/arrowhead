@@ -24,16 +24,44 @@ DEFAULT_ALLOWED_PORTS = frozenset({80, 443})
 
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 
+# IPv6 prefixes that embed an IPv4 address. An attacker can wrap a private or
+# metadata IPv4 address in one of these so a check that only inspects the IPv6
+# form sees a globally routable address. The NAT64 well-known prefix is the
+# important one: on an IPv6-only network with a NAT64 gateway,
+# http://[64:ff9b::a9fe:a9fe]/ reaches 169.254.169.254.
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+_V4_COMPAT_PREFIX = ipaddress.ip_network("::/96")
+
 
 class BlockedURLError(Exception):
     """The URL must not be fetched."""
 
 
+def _embedded_ipv4(address: IPAddress) -> ipaddress.IPv4Address | None:
+    """Return the IPv4 address embedded in an IPv6 address, if any.
+
+    Covers IPv4-mapped, 6to4, Teredo, NAT64, and IPv4-compatible forms, so a
+    blocked IPv4 address cannot be reached by wrapping it in IPv6.
+    """
+    if not isinstance(address, ipaddress.IPv6Address):
+        return None
+    if address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    if address.sixtofour is not None:
+        return address.sixtofour
+    if address.teredo is not None:
+        # (server, client); the client is the tunneled destination host.
+        return address.teredo[1]
+    if address in _NAT64_PREFIX or address in _V4_COMPAT_PREFIX:
+        return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+    return None
+
+
 def is_blocked_address(address: IPAddress) -> bool:
     """Return True unless the address is globally routable unicast."""
-    mapped = getattr(address, "ipv4_mapped", None)
-    if mapped is not None:
-        address = mapped
+    embedded = _embedded_ipv4(address)
+    if embedded is not None:
+        address = embedded
     return not address.is_global or address.is_multicast
 
 
@@ -99,7 +127,13 @@ async def resolve_pinned(
         raise BlockedURLError("URL has no host")
     if allowed_hosts and host.lower() not in allowed_hosts:
         raise BlockedURLError("host is not in the egress allowlist")
-    port = parts.port if parts.port is not None else DEFAULT_PORTS[scheme]
+    # parts.port raises ValueError for an out-of-range or non-numeric port;
+    # turn that into a refusal rather than letting it escape the tool.
+    try:
+        explicit_port = parts.port
+    except ValueError as exc:
+        raise BlockedURLError("URL has an invalid port") from exc
+    port = explicit_port if explicit_port is not None else DEFAULT_PORTS[scheme]
     if port not in (DEFAULT_ALLOWED_PORTS | (allowed_ports or frozenset())):
         raise BlockedURLError("port is not allowed")
 
