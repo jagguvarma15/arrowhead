@@ -86,42 +86,48 @@ resource server.
 
 ```
 src/arrowhead/
-  server.py              builds the app: auth provider + middleware + tools
+  server.py              builds the app: auth provider + middleware + components
+  app.py                 importable facade: call, read_resource, get_prompt
   config.py              all settings, ARROWHEAD_-prefixed environment vars
   cache.py               ttlMs / cacheScope hints on tools/list
   auth/
     oauth.py             resource server + mandatory audience validation
-    scopes.py            tool -> required scope, split by verb
+    scopes.py            component -> required scope, split by verb
     identity.py          caller identity from the validated token only
+    principal.py         in-process principal for the import path
   authz/
     policy.py            default-deny per-resource ABAC + Authorizer seam
-    enforce.py           enforcement point the document tools call
+    enforce.py           enforcement point every component calls
     confirmation.py      elicitation confirmation for destructive actions
   store/
     document_store.py    jailed corpus: read, list, stat, atomic write
   content/
     provenance.py        untrusted-data wrapping with randomized delimiters
+    render.py            shared format-aware document renderer
     json_safe.py         bounded JSON parsing
     markdown_safe.py     HTML and image-exfiltration removal
     text_safe.py         ANSI / control / invisible-character stripping
   tools/
-    registry.py          registers all tools with annotations + scopes
-    safe_fetch.py        SSRF-guarded fetch
-    calculate.py         validation + sandboxed evaluation
-    read_file.py         path-jailed reader
-    doc_search.py        bounded, read-filtered corpus search
-    doc_read.py          format-aware sanitized document read
-    doc_retrieve.py      SSRF-guarded external fetch + sanitize
-    doc_scan.py          secrets / PII scan with redaction
-    doc_write.py         atomic, confirmed document write
+    catalog.py           the component contract: tool/resource/prompt specs
+    registry.py          registers tools, resources, prompts, completions
+    safe_fetch.py, calculate.py, read_file.py, doc_*.py   the built-in tools
+  connectors/
+    sql.py               vetted read-only SQL over a pooled async engine
+    pgvector.py          pgvector search with server-side tenant isolation
+  resources/
+    documents.py         doc://{path} template + docs://index listing
+  prompts/
+    library.py           the curated, argument-sanitizing prompt set
+  completions/
+    handlers.py          authorization-filtered argument completion
   security/
-    ssrf_guard.py        resolve, block private ranges, pin the address
+    ssrf_guard.py        resolve, block private ranges and ports, pin the address
     input_validation.py  shared allowlist validators
     sandbox.py           AST arithmetic interpreter (no eval)
     search_match.py      ReDoS-safe literal / timed-regex matcher
     secret_scan.py       fixed-pattern secret and PII detection
     rate_limit.py        token-bucket limiter, memory or Redis store
-    kill_switch.py       per-tool disable
+    kill_switch.py       per-component disable
   observability/
     audit_log.py         structured, source-redacted audit line
     tracing.py           OpenTelemetry span + W3C trace context
