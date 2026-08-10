@@ -137,3 +137,44 @@ async def test_the_bad_param_names_are_refused(sql_db):
 
     with pytest.raises(ToolError):
         await sql_query("SELECT :x", {"1bad": "v"})
+
+
+async def test_a_tableless_query_is_authorized_against_the_sentinel(
+    sql_db, monkeypatch
+):
+    # A policy scoped to the users table must still refuse a query that reads
+    # no table, so it cannot slip past authorization by referencing nothing.
+    monkeypatch.setenv("ARROWHEAD_AUTH_ENABLED", "true")
+    monkeypatch.setenv(
+        "ARROWHEAD_AUTHZ_POLICY",
+        '{"grants": [{"subject": "*", "actions": ["query"], "prefix": "users"}]}',
+    )
+    from arrowhead.authz.enforce import get_authorizer
+    from arrowhead.config import get_settings
+
+    get_settings.cache_clear()
+    get_authorizer.cache_clear()
+    from arrowhead.connectors.sql import sql_query
+
+    with pytest.raises(ToolError):
+        await sql_query("SELECT 1")
+
+
+async def test_column_names_are_sanitized(sql_db):
+    from arrowhead.connectors.sql import sql_query
+
+    result = await sql_query('SELECT id AS "x\x1b[31m​" FROM users')
+    column = result["metadata"]["columns"][0]
+    assert "\x1b" not in column
+    assert "​" not in column
+
+
+async def test_the_dialect_is_derived_from_the_dsn():
+    # A DSN-derived dialect keeps the guard from regenerating a query through a
+    # generic dialect that would silently drop a dialect-specific clause.
+    from arrowhead.connectors.sql import _dialect_from_dsn, guard_read_query
+
+    assert _dialect_from_dsn("sqlite+aiosqlite:///x.db") == "sqlite"
+    assert _dialect_from_dsn("postgresql+asyncpg://u@h/db") == "postgres"
+    guarded = guard_read_query("SELECT * FROM users FOR UPDATE", dialect="postgres")
+    assert "FOR UPDATE" in guarded.sql
