@@ -6,6 +6,11 @@ The original hostname travels in the Host header and, for HTTPS, as the
 TLS server name, so certificate verification still checks the real host.
 Response bodies are capped in size. The caller's MCP credentials are never
 attached to outbound requests.
+
+Holding the tool's scope is necessary but not sufficient: the fetch is also
+authorized against the policy, so a deployment can deny outbound reads to a
+caller without disabling the tool for everyone. The egress allowlist remains
+the destination control.
 """
 
 from urllib.parse import urljoin
@@ -13,6 +18,8 @@ from urllib.parse import urljoin
 import httpx
 from fastmcp.exceptions import ToolError
 
+from arrowhead.authz.enforce import authorize_action
+from arrowhead.authz.policy import ACTION_READ, KIND_URL, Resource
 from arrowhead.config import get_settings
 from arrowhead.security.input_validation import ValidationError, validate_url
 from arrowhead.security.ssrf_guard import BlockedURLError, resolve_pinned
@@ -27,6 +34,11 @@ async def safe_fetch(url: str) -> dict:
     type, and body text. Private, loopback, link-local, and cloud metadata
     addresses are refused. Example: safe_fetch(url="https://example.com/").
     """
+    try:
+        validate_url(url)
+    except ValidationError as exc:
+        raise ToolError(str(exc)) from exc
+    authorize_action(ACTION_READ, Resource(kind=KIND_URL, identifier=url))
     try:
         return await fetch_url(url)
     except (ValidationError, BlockedURLError, FetchTooLargeError) as exc:
@@ -49,6 +61,7 @@ async def fetch_url(
     settings = get_settings()
     validate_url(url)
     allowed_hosts = settings.egress_allowed_hosts_set()
+    allowed_ports = settings.egress_allowed_ports_set()
 
     async with httpx.AsyncClient(
         transport=transport,
@@ -58,7 +71,10 @@ async def fetch_url(
         current = url
         for _ in range(settings.fetch_max_redirects + 1):
             target = await resolve_pinned(
-                current, getaddrinfo=getaddrinfo, allowed_hosts=allowed_hosts
+                current,
+                getaddrinfo=getaddrinfo,
+                allowed_hosts=allowed_hosts,
+                allowed_ports=allowed_ports,
             )
             extensions = {}
             if target.scheme == "https":
