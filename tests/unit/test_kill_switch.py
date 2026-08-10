@@ -1,4 +1,6 @@
+import pytest
 from fastmcp import Client
+from mcp.shared.exceptions import McpError
 
 from arrowhead.config import get_settings
 
@@ -26,6 +28,22 @@ async def test_disabled_tool_is_hidden_and_refused(
         # Other tools keep working.
         result = await client.call_tool("calculate", {"expression": "1 + 1"})
         assert result.data == 2.0
+
+
+async def test_disabled_prompt_is_hidden_and_refused(
+    monkeypatch, stdio_transport
+):
+    monkeypatch.setenv("ARROWHEAD_DISABLED_TOOLS", "summarize_document")
+    get_settings.cache_clear()
+    from arrowhead.server import create_server
+
+    async with Client(create_server()) as client:
+        prompts = {p.name for p in await client.list_prompts()}
+        assert "summarize_document" not in prompts
+        assert "audit_corpus" in prompts
+
+        with pytest.raises(McpError, match="disabled"):
+            await client.get_prompt("summarize_document", {"path": "a.md"})
 
 
 def test_disabled_tools_parsing():
