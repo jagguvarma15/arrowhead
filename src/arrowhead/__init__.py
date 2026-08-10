@@ -5,7 +5,8 @@ stays light and does not pull in the server, its middleware, or any connector
 driver until something is actually used.
 """
 
-from importlib.metadata import PackageNotFoundError, version as _installed_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _installed_version
 from typing import TYPE_CHECKING
 
 try:
