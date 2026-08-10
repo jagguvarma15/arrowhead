@@ -20,13 +20,13 @@ from arrowhead.authz.policy import ACTION_READ, KIND_DOCUMENT, Resource
 from arrowhead.config import get_settings
 from arrowhead.content.json_safe import JSONSafetyError, parse_json
 from arrowhead.content.markdown_safe import sanitize_markdown
-from arrowhead.content.provenance import wrap_content
+from arrowhead.content.provenance import ProvenancedResult, wrap_content
 from arrowhead.content.text_safe import TextSafetyError, decode_text, sanitize_text
 from arrowhead.security.input_validation import ValidationError, validate_document_path
 from arrowhead.store.document_store import DocumentStoreError, build_document_store
 
 
-async def doc_read(path: str) -> dict:
+async def doc_read(path: str) -> ProvenancedResult:
     """Read a JSON, Markdown, or text document from the corpus by relative
     path. Returns sanitized content wrapped with provenance. Example:
     doc_read(path="notes/todo.md").
