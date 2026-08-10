@@ -137,6 +137,12 @@ def _dialect_from_dsn(dsn: str) -> str | None:
     return _DSN_DIALECTS.get(backend)
 
 
+# The database statement timeout is the primary per-query bound; the in-process
+# deadline is a backstop for a connection that hangs before the database can
+# enforce it, so it is given this much grace beyond the configured budget.
+_TIMEOUT_GRACE_SECONDS = 5.0
+
+
 def _session_guards(dialect: str | None, settings) -> tuple[str, ...]:
     """SET statements that enforce read-only and a timeout, where supported.
 
@@ -251,7 +257,7 @@ async def _execute(guarded: GuardedQuery, bind: dict, settings, dialect):
     engine = _get_engine(settings.sql_dsn)
     guards = _session_guards(dialect, settings)
     try:
-        with anyio.fail_after(settings.sql_timeout_seconds):
+        with anyio.fail_after(settings.sql_timeout_seconds + _TIMEOUT_GRACE_SECONDS):
             async with engine.connect() as conn:
                 if guards:
                     # Run inside a read-only transaction so the SET LOCAL
@@ -266,6 +272,12 @@ async def _execute(guarded: GuardedQuery, bind: dict, settings, dialect):
     except TimeoutError as exc:
         raise SqlConnectorError("the query exceeded its time budget") from exc
     except SQLAlchemyError as exc:
+        raise SqlConnectorError(f"query failed: {type(exc).__name__}") from exc
+    except Exception as exc:
+        # A driver-level error the ORM did not wrap (for example an asyncpg
+        # statement cancellation raised while streaming rows) still becomes a
+        # clean connector error rather than crashing the call. CancelledError
+        # derives from BaseException, so the in-process deadline is unaffected.
         raise SqlConnectorError(f"query failed: {type(exc).__name__}") from exc
 
 
