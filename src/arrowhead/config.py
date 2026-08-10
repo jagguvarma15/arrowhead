@@ -272,6 +272,32 @@ class Settings(BaseSettings):
                 )
         return value
 
+    @field_validator("sql_dialect")
+    @classmethod
+    def _validate_sql_dialect(cls, value: str) -> str:
+        """Canonicalize the SQL dialect and reject an unknown one at startup.
+
+        The natural value "postgresql" is not a sqlglot dialect and would
+        otherwise raise at first query and silently disable the read-only
+        session guards, which key on the exact string "postgres".
+        """
+        if not value.strip():
+            return ""
+        aliases = {
+            "postgresql": "postgres",
+            "postgres": "postgres",
+            "sqlite": "sqlite",
+            "mysql": "mysql",
+            "mariadb": "mysql",
+        }
+        canonical = aliases.get(value.strip().lower())
+        if canonical is None:
+            raise ValueError(
+                "sql_dialect must be one of postgres, sqlite, mysql "
+                f"(got {value!r})"
+            )
+        return canonical
+
     def egress_allowed_ports_set(self) -> frozenset[int]:
         """Extra ports the fetch tools may reach beyond 80 and 443; empty
         allows only the two web ports."""
