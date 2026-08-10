@@ -12,8 +12,28 @@ from functools import lru_cache
 from fastmcp.exceptions import ToolError
 
 from arrowhead.auth.identity import caller_identity
-from arrowhead.authz.policy import Authorizer, Resource, build_authorizer
+from arrowhead.authz.policy import (
+    KIND_DOCUMENT,
+    KIND_FILE,
+    KIND_PREFIX,
+    KIND_TABLE,
+    KIND_URL,
+    Authorizer,
+    Resource,
+    build_authorizer,
+)
 from arrowhead.config import current_settings_override, get_settings
+
+# The noun used in a denial message, chosen from the resource kind so the
+# message reads correctly for a URL or a table without ever echoing the
+# resource identifier a probing caller supplied.
+_RESOURCE_NOUN = {
+    KIND_DOCUMENT: "document",
+    KIND_PREFIX: "path",
+    KIND_URL: "URL",
+    KIND_TABLE: "table",
+    KIND_FILE: "file",
+}
 
 
 class AuthorizationError(ToolError):
@@ -50,5 +70,6 @@ def authorize_action(action: str, resource: Resource) -> str:
     subject = caller_identity()
     decision = get_authorizer().authorize(subject, action, resource)
     if not decision.allowed:
-        raise AuthorizationError("not authorized for this document")
+        noun = _RESOURCE_NOUN.get(resource.kind, "resource")
+        raise AuthorizationError(f"not authorized for this {noun}")
     return subject
