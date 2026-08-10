@@ -49,6 +49,22 @@ async def test_scan_bounds_findings(docs, monkeypatch):
     assert result["truncated"] is True
 
 
+async def test_scan_prefix_match_survives_the_file_cap(docs, monkeypatch):
+    # Twenty files sort ahead of the one match under z/. Capping the walk
+    # before the prefix filter would report finding_count 0 and truncated
+    # false; the prefix must be applied while walking.
+    monkeypatch.setenv("ARROWHEAD_SCAN_MAX_FILES", "10")
+    get_settings.cache_clear()
+    for i in range(20):
+        (docs / f"a{i:02d}.txt").write_text("nothing here")
+    (docs / "z").mkdir()
+    (docs / "z" / "hit.txt").write_text("AKIAIOSFODNN7EXAMPLE")
+    result = await doc_scan("z/")
+    assert result["finding_count"] == 1
+    assert result["files_scanned"] == 1
+    assert result["truncated"] is False
+
+
 async def test_scan_traversal_prefix_rejected(docs):
     with pytest.raises(ToolError):
         await doc_scan("../../etc")
