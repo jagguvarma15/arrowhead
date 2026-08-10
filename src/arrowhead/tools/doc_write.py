@@ -11,6 +11,7 @@ a partial document.
 
 import json
 from pathlib import PurePosixPath
+from typing import TypedDict
 
 import anyio
 from fastmcp import Context
@@ -29,12 +30,21 @@ from arrowhead.security.input_validation import (
 from arrowhead.store.document_store import DocumentStoreError, build_document_store
 
 
+class WriteResult(TypedDict):
+    """Metadata about the written document."""
+
+    path: str
+    size: int
+    extension: str
+    created: bool
+
+
 async def doc_write(
     path: str,
     content: str,
     overwrite: bool = False,
     ctx: Context | None = None,
-) -> dict:
+) -> WriteResult:
     """Write a JSON, Markdown, or text document to the corpus. Creates a new
     document; set overwrite to replace an existing one, which asks for
     confirmation. Example: doc_write(path="notes/todo.md", content="# Todo").
