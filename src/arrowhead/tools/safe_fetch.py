@@ -13,6 +13,7 @@ caller without disabling the tool for everyone. The egress allowlist remains
 the destination control.
 """
 
+from typing import TypedDict
 from urllib.parse import urljoin
 
 import httpx
@@ -29,7 +30,15 @@ class FetchTooLargeError(Exception):
     """The response body exceeded the configured size cap."""
 
 
-async def safe_fetch(url: str) -> dict:
+class FetchResult(TypedDict):
+    """The status, content type, and decoded body of a fetched response."""
+
+    status: int
+    content_type: str | None
+    body: str
+
+
+async def safe_fetch(url: str) -> FetchResult:
     """Fetch a public http or https URL and return its status, content
     type, and body text. Private, loopback, link-local, and cloud metadata
     addresses are refused. Example: safe_fetch(url="https://example.com/").
@@ -52,7 +61,7 @@ async def fetch_url(
     *,
     transport: httpx.AsyncBaseTransport | None = None,
     getaddrinfo=None,
-) -> dict:
+) -> FetchResult:
     """Fetch with per-hop SSRF vetting and address pinning.
 
     transport and getaddrinfo exist so tests can substitute a mock
