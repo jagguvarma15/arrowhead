@@ -15,7 +15,7 @@ import httpx
 from fastmcp.exceptions import ToolError
 
 from arrowhead.authz.enforce import authorize_action
-from arrowhead.authz.policy import ACTION_READ, KIND_URL, Resource
+from arrowhead.authz.policy import ACTION_FETCH, KIND_URL, Resource
 from arrowhead.config import get_settings
 from arrowhead.content.json_safe import JSONSafetyError, parse_json
 from arrowhead.content.markdown_safe import sanitize_markdown
@@ -37,7 +37,7 @@ async def doc_retrieve(url: str) -> ProvenancedResult:
     except ValidationError as exc:
         raise ToolError(str(exc)) from exc
 
-    authorize_action(ACTION_READ, Resource(kind=KIND_URL, identifier=url))
+    authorize_action(ACTION_FETCH, Resource(kind=KIND_URL, identifier=url))
 
     try:
         response = await fetch_url(url)
