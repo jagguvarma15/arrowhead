@@ -45,18 +45,29 @@ class TestInMemoryStore:
         assert "caller-4999:fetch" in store._buckets
         assert "caller-0:fetch" not in store._buckets
 
+    async def test_eviction_retains_a_throttled_bucket(self):
+        store = InMemoryTokenBucketStore(clock=Clock(), max_entries=3)
+        # Drain the victim so its bucket is throttled (no tokens, no refill).
+        assert await store.acquire("victim", 1, 0.0)
+        assert not await store.acquire("victim", 1, 0.0)
+        # Flood with fresh, unpenalized buckets past the cap.
+        for i in range(10):
+            await store.acquire(f"flood{i}", 60, 0.0)
+        # The throttled bucket is kept; an unpenalized flood bucket was evicted
+        # instead, so the victim cannot reset its own throttle.
+        assert "victim" in store._buckets
+        assert not await store.acquire("victim", 1, 0.0)
+
 
 class TestRedisStore:
-    async def test_capacity_and_refill(self):
-        clock = Clock()
-        store = RedisTokenBucketStore(
-            fakeredis.aioredis.FakeRedis(), clock=clock
-        )
+    async def test_capacity_is_consumed(self):
+        # The script reads time from the Redis server, so refill over time is
+        # covered by the in-memory store's injectable clock; here we confirm the
+        # capacity is consumed and then refused.
+        store = RedisTokenBucketStore(fakeredis.aioredis.FakeRedis())
         assert await store.acquire("k", 2, 1.0)
         assert await store.acquire("k", 2, 1.0)
         assert not await store.acquire("k", 2, 1.0)
-        clock.now += 1.0
-        assert await store.acquire("k", 2, 1.0)
 
     async def test_is_healthy_and_aclose(self):
         client = fakeredis.aioredis.FakeRedis()
@@ -90,6 +101,22 @@ class TestMiddlewareLifecycle:
         store = InMemoryTokenBucketStore(clock=Clock())
         assert await store.is_healthy() is True
         await store.aclose()
+
+    async def test_explicit_zero_blocks_but_an_absent_component_falls_through(self):
+        store = InMemoryTokenBucketStore(clock=Clock())
+        middleware = RateLimitMiddleware(
+            store, {"blocked": 0}, default_per_minute=0
+        )
+        # an explicit ceiling of 0 means no calls
+        assert await middleware.allow("blocked") is False
+        # a component with no ceiling and no default is unlimited, not blocked
+        assert await middleware.allow("absent") is True
+
+    async def test_allow_consumes_a_configured_ceiling(self):
+        store = InMemoryTokenBucketStore(clock=Clock())
+        middleware = RateLimitMiddleware(store, {"c": 1})
+        assert await middleware.allow("c") is True
+        assert await middleware.allow("c") is False
 
 
 def limited_server(limit: int) -> FastMCP:

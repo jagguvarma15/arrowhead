@@ -52,8 +52,13 @@ def validate_relative_path(path: str) -> str:
         raise ValidationError(f"path exceeds {MAX_PATH_LENGTH} characters")
     if "\x00" in path:
         raise ValidationError("path contains a null byte")
+    if "\\" in path:
+        # A backslash is a literal character to PurePosixPath, so a segment
+        # like "a\\..\\..\\etc" would slip past the ".." check and leave
+        # containment as the only defense; refuse it outright.
+        raise ValidationError("path may not contain a backslash")
     candidate = PurePosixPath(path)
-    if candidate.is_absolute() or path.startswith(("/", "\\")):
+    if candidate.is_absolute() or path.startswith("/"):
         raise ValidationError("path must be relative")
     if any(part == ".." for part in candidate.parts):
         raise ValidationError("path may not contain parent-directory components")

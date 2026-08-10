@@ -23,10 +23,14 @@ def rpc(method, params=None, id=1):
 
 
 async def test_initialize_lifecycle(auth_client, bearer):
+    from mcp.types import LATEST_PROTOCOL_VERSION
+
+    from arrowhead import __version__
+
     request = rpc(
         "initialize",
         {
-            "protocolVersion": "2025-06-18",
+            "protocolVersion": LATEST_PROTOCOL_VERSION,
             "capabilities": {},
             "clientInfo": {"name": "conformance", "version": "0"},
         },
@@ -39,8 +43,12 @@ async def test_initialize_lifecycle(auth_client, bearer):
     assert body["jsonrpc"] == "2.0"
     assert body["id"] == 7
     result = body["result"]
-    assert result["protocolVersion"]
+    # The server must negotiate its latest supported spec, not silently
+    # fall back to an older one.
+    assert result["protocolVersion"] == LATEST_PROTOCOL_VERSION
     assert result["serverInfo"]["name"] == "arrowhead"
+    # serverInfo carries the real package version, not a stale constant.
+    assert result["serverInfo"]["version"] == __version__
     assert "tools" in result["capabilities"]
 
 

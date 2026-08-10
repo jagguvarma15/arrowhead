@@ -33,6 +33,34 @@ def describe_arguments(arguments: dict | None) -> dict[str, str]:
     return shapes
 
 
+def describe_resource(uri) -> str:
+    """A resource's scheme and the shape of its path, never the path itself.
+
+    A doc:// URI carries a caller-supplied document path; logging it verbatim
+    would leak exactly the path value the rest of the log is careful to hide.
+    """
+    text = str(uri)
+    scheme, separator, rest = text.partition("://")
+    if not separator:
+        return f"str[{len(text)}]"
+    return f"{scheme}://str[{len(rest)}]"
+
+
+def audit_event(
+    event: str, *, status: str, duration_ms: float, metric_label: str, **fields
+) -> None:
+    """Emit one audit line for a request path outside the middleware chain."""
+    record = {
+        "event": event,
+        **fields,
+        "caller": caller_identity(),
+        "status": status,
+        "duration_ms": duration_ms,
+    }
+    logger.info(json.dumps(record, sort_keys=True))
+    record_tool_call(metric_label, status, duration_ms)
+
+
 class AuditLogMiddleware(Middleware):
     async def on_call_tool(
         self, context: MiddlewareContext, call_next: CallNext
@@ -55,7 +83,10 @@ class AuditLogMiddleware(Middleware):
         return await self._audited(
             context,
             call_next,
-            base={"event": "read_resource", "resource": str(context.message.uri)},
+            base={
+                "event": "read_resource",
+                "resource": describe_resource(context.message.uri),
+            },
             metric_label="resource:read",
         )
 

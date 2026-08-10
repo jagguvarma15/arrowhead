@@ -2,6 +2,9 @@
 settings reads and the settings-derived authorizer, and are gone afterward.
 """
 
+import pytest
+from pydantic import ValidationError
+
 from arrowhead.authz.enforce import get_authorizer
 from arrowhead.authz.policy import ACTION_WRITE, KIND_DOCUMENT, Resource
 from arrowhead.config import Settings, get_settings, use_settings
@@ -28,3 +31,22 @@ def test_injected_settings_reach_the_authorizer():
 
     # Outside the block the default (auth disabled) authorizer allows the call.
     assert get_authorizer().authorize("service", ACTION_WRITE, resource).allowed
+
+
+def test_malformed_egress_port_is_rejected_at_construction():
+    with pytest.raises(ValidationError):
+        Settings(egress_allowed_ports="8443,notaport")
+    with pytest.raises(ValidationError):
+        Settings(egress_allowed_ports="70000")
+    assert Settings(egress_allowed_ports="8443, 9000").egress_allowed_ports_set() == {
+        8443,
+        9000,
+    }
+
+
+def test_sql_dialect_is_canonicalized_and_validated():
+    # the natural value "postgresql" is canonicalized, not silently ignored
+    assert Settings(sql_dialect="postgresql").sql_dialect == "postgres"
+    assert Settings(sql_dialect="").sql_dialect == ""
+    with pytest.raises(ValidationError):
+        Settings(sql_dialect="bogus")

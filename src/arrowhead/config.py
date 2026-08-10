@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -47,6 +48,10 @@ class Settings(BaseSettings):
     # auth: OAuth 2.1 resource server. Off only for local stdio use.
     # TLS is terminated by the hosting platform or reverse proxy.
     auth_enabled: bool = False
+    # Serving HTTP with auth disabled exposes every tool with no scope or
+    # per-resource check over the network. Refuse that combination at startup
+    # unless a deployment opts in explicitly (for a trusted-network test).
+    allow_insecure_http: bool = False
     # "jwt" verifies against any issuer's key material (bring-your-own-IdP);
     # "workos" wires WorkOS AuthKit, which is purpose-built for MCP.
     oauth_provider: Literal["jwt", "workos"] = "jwt"
@@ -172,10 +177,17 @@ class Settings(BaseSettings):
     doc_write_per_minute: int = 30
     sql_query_per_minute: int = 60
     vector_search_per_minute: int = 30
-    # Ceilings for the non-tool components. Reading a resource and getting a
-    # prompt are rate-limited per caller just as a tool call is.
+    # Handle-based async tasks: starting one is expensive (a full background
+    # scan), polling is cheap, cancelling is in between.
+    task_start_per_minute: int = 10
+    task_get_per_minute: int = 120
+    task_update_per_minute: int = 30
+    # Ceilings for the non-tool components. Reading a resource, getting a
+    # prompt, and completing an argument are each rate-limited per caller just
+    # as a tool call is, so no request path is left unmetered.
     resource_read_per_minute: int = 60
     prompt_get_per_minute: int = 60
+    completion_per_minute: int = 60
     # ceiling for any tool without an explicit limit above, so a new tool
     # is never silently unlimited
     default_tool_per_minute: int = 60
@@ -185,10 +197,13 @@ class Settings(BaseSettings):
     # without a code change, e.g. ARROWHEAD_DISABLED_TOOLS=safe_fetch
     disabled_tools: str = ""
 
-    # how long clients may cache the tool list; it only changes on
-    # deploy or when the kill switch flips, both of which restart the
-    # process anyway
+    # how long clients may cache a list result (tools, resources, resource
+    # templates, prompts); a list only changes on deploy or when the kill
+    # switch flips, both of which restart the process anyway
     tool_list_ttl_ms: int = 3_600_000
+    # how long clients may cache a single resource read; a document changes
+    # only on a write, so this is shorter than the list TTL
+    resource_read_ttl_ms: int = 60_000
 
     # OpenTelemetry export. Spans and metrics are no-ops unless an OTLP
     # endpoint is set, so telemetry costs nothing until it is configured.
@@ -242,6 +257,53 @@ class Settings(BaseSettings):
             for name in self.pgvector_collections.split(",")
             if name.strip()
         )
+
+    @field_validator("egress_allowed_ports")
+    @classmethod
+    def _validate_egress_ports(cls, value: str) -> str:
+        """Reject a non-numeric or out-of-range extra port at startup rather
+        than raising on the first fetch."""
+        for entry in value.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            try:
+                port = int(entry)
+            except ValueError:
+                raise ValueError(
+                    f"egress_allowed_ports has a non-numeric port: {entry!r}"
+                ) from None
+            if not 1 <= port <= 65535:
+                raise ValueError(
+                    f"egress_allowed_ports has an out-of-range port: {port}"
+                )
+        return value
+
+    @field_validator("sql_dialect")
+    @classmethod
+    def _validate_sql_dialect(cls, value: str) -> str:
+        """Canonicalize the SQL dialect and reject an unknown one at startup.
+
+        The natural value "postgresql" is not a sqlglot dialect and would
+        otherwise raise at first query and silently disable the read-only
+        session guards, which key on the exact string "postgres".
+        """
+        if not value.strip():
+            return ""
+        aliases = {
+            "postgresql": "postgres",
+            "postgres": "postgres",
+            "sqlite": "sqlite",
+            "mysql": "mysql",
+            "mariadb": "mysql",
+        }
+        canonical = aliases.get(value.strip().lower())
+        if canonical is None:
+            raise ValueError(
+                "sql_dialect must be one of postgres, sqlite, mysql "
+                f"(got {value!r})"
+            )
+        return canonical
 
     def egress_allowed_ports_set(self) -> frozenset[int]:
         """Extra ports the fetch tools may reach beyond 80 and 443; empty

@@ -5,6 +5,48 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Handle-based asynchronous tasks following the 2026-07-28 stateless pattern:
+  `scan_corpus_async` starts a background corpus scan and returns a server-minted
+  handle, `task_get` polls it, and `task_update` cancels it. A task is owned by
+  the caller that started it and is guarded, rate-limited, and kill-switchable
+  like every other tool.
+- Argument completion now passes the same per-caller rate limit, kill switch,
+  and audit line as a tool call, closing the one request path that bypassed the
+  middleware chain.
+- Application-level alignment with the 2026-07-28 specification: a valid
+  `private` cache scope with `ttlMs` on every cacheable list and read result, a
+  deterministic list order, error-detail masking, and a conformance test that
+  asserts the negotiated protocol version. The wire-level 2026-07-28 changes are
+  deferred until a stable SDK speaks them; see `docs/SECURITY.md`.
+- A startup refusal to serve HTTP with authentication disabled unless
+  `ARROWHEAD_ALLOW_INSECURE_HTTP` is set, and startup validation of the SQL
+  dialect and the egress port allowlist.
+
+### Changed
+
+- Authorization grants are now kind-aware: outbound fetch is authorized under its
+  own `fetch` action, so a policy can deny a caller outbound fetch without
+  denying its document reads, and prefix matching is component-bounded so a grant
+  on `notes` no longer reaches `notes-private`. A tableless SQL query is denied
+  by default.
+- The SQL guard bounds parse nesting, rejects row-locking clauses and a denylist
+  of side-effecting, file, network, and administrative functions, and its result
+  caps are measured in bytes with a per-cell bound. `serverInfo.version` and
+  `/health` now report the real package version.
+
+### Security
+
+- Fixed an SSRF bypass where an IPv4 address embedded in an IPv6 wrapper (NAT64
+  and related forms) could reach the cloud metadata endpoint.
+- Fixed a content-sanitizer bypass where a multi-line or oversized HTML tag (a
+  zero-click image beacon) survived Markdown stripping.
+- The secret-scan redaction tag is now keyed by a random per-process salt, so it
+  is no longer brute-forceable back to a low-entropy SSN or email.
+- Resource reads are audited by scheme and path shape, never the caller-supplied
+  path; additional invisible and filler characters are stripped from text.
+
 ## [0.2.0]
 
 ### Added

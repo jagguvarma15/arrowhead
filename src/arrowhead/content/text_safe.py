@@ -33,6 +33,12 @@ _INVISIBLE = re.compile(
     "︀-️"  # variation selectors 1-16
     "\U000e0000-\U000e007f"  # Unicode Tags block
     "\U000e0100-\U000e01ef"  # variation selectors supplement
+    "  "  # line and paragraph separators (line-break spoofers)
+    "᠎"  # Mongolian vowel separator
+    "ᅟᅠ"  # Hangul choseong and jungseong fillers
+    "ㅤ"  # Hangul filler
+    "ﾠ"  # halfwidth Hangul filler
+    "⠀"  # Braille pattern blank
     "]"
 )
 

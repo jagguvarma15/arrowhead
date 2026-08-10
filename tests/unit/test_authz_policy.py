@@ -1,6 +1,7 @@
 import pytest
 
 from arrowhead.authz.policy import (
+    ACTION_FETCH,
     ACTION_READ,
     ACTION_SCAN,
     ACTION_SEARCH,
@@ -50,10 +51,60 @@ def test_subject_token_expansion_scopes_each_caller_to_own_namespace():
     assert not policy.authorize("alice", ACTION_WRITE, doc("bob/n.txt")).allowed
 
 
-def test_url_resources_ignore_prefix():
-    policy = JailPolicy([Grant("*", frozenset({ACTION_READ}), "docs/")])
-    url = Resource(kind="url", identifier="https://example.com/")
-    assert policy.authorize("alice", ACTION_READ, url).allowed
+def url(identifier="https://example.com/"):
+    return Resource(kind="url", identifier=identifier)
+
+
+def test_url_fetch_ignores_prefix_but_needs_the_fetch_action():
+    policy = JailPolicy([Grant("*", frozenset({ACTION_FETCH}), "docs/")])
+    assert policy.authorize("alice", ACTION_FETCH, url()).allowed
+
+
+def test_read_grant_does_not_permit_url_fetch():
+    # A caller can read documents without being able to fetch outbound URLs,
+    # which a read grant alone must not imply.
+    policy = JailPolicy([Grant("*", frozenset({ACTION_READ}), "")])
+    assert policy.authorize("alice", ACTION_READ, doc("x.txt")).allowed
+    assert not policy.authorize("alice", ACTION_FETCH, url()).allowed
+
+
+def test_point_prefix_matches_on_a_component_boundary():
+    policy = JailPolicy([Grant("*", frozenset({ACTION_READ}), "notes")])
+    assert policy.authorize("a", ACTION_READ, doc("notes")).allowed
+    assert policy.authorize("a", ACTION_READ, doc("notes/x.txt")).allowed
+    # a sibling that only shares the string prefix must not be reachable
+    assert not policy.authorize("a", ACTION_READ, doc("notes-private/x")).allowed
+
+
+def test_subject_with_traversal_is_refused_in_namespace_expansion():
+    policy = JailPolicy([Grant("*", frozenset({ACTION_WRITE}), "${subject}/")])
+    assert not policy.authorize("../evil", ACTION_WRITE, doc("../evil/x")).allowed
+
+
+def test_kind_scoped_grant_separates_file_from_document():
+    policy = JailPolicy(
+        [Grant("*", frozenset({ACTION_READ}), "", frozenset({"document"}))]
+    )
+    assert policy.authorize("a", ACTION_READ, doc("x")).allowed
+    assert not policy.authorize(
+        "a", ACTION_READ, Resource(kind="file", identifier="x")
+    ).allowed
+
+
+def test_parse_policy_rejects_non_list_actions():
+    with pytest.raises(PolicyError):
+        parse_policy('{"grants": [{"subject": "*", "actions": "read"}]}')
+
+
+def test_parse_policy_accepts_kinds():
+    policy = parse_policy(
+        '{"grants": [{"subject": "*", "actions": ["read"], '
+        '"prefix": "", "kinds": ["document"]}]}'
+    )
+    assert policy.authorize("a", ACTION_READ, doc("x")).allowed
+    assert not policy.authorize(
+        "a", ACTION_READ, Resource(kind="file", identifier="x")
+    ).allowed
 
 
 def prefix(identifier):

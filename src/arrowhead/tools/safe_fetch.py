@@ -8,9 +8,10 @@ Response bodies are capped in size. The caller's MCP credentials are never
 attached to outbound requests.
 
 Holding the tool's scope is necessary but not sufficient: the fetch is also
-authorized against the policy, so a deployment can deny outbound reads to a
-caller without disabling the tool for everyone. The egress allowlist remains
-the destination control.
+authorized against the policy under its own `fetch` action, distinct from
+document reads, so a deployment can deny a caller outbound fetch without
+denying its document reads. The egress allowlist remains the destination
+control.
 """
 
 from typing import TypedDict
@@ -20,7 +21,7 @@ import httpx
 from fastmcp.exceptions import ToolError
 
 from arrowhead.authz.enforce import authorize_action
-from arrowhead.authz.policy import ACTION_READ, KIND_URL, Resource
+from arrowhead.authz.policy import ACTION_FETCH, KIND_URL, Resource
 from arrowhead.config import get_settings
 from arrowhead.security.input_validation import ValidationError, validate_url
 from arrowhead.security.ssrf_guard import BlockedURLError, resolve_pinned
@@ -47,7 +48,7 @@ async def safe_fetch(url: str) -> FetchResult:
         validate_url(url)
     except ValidationError as exc:
         raise ToolError(str(exc)) from exc
-    authorize_action(ACTION_READ, Resource(kind=KIND_URL, identifier=url))
+    authorize_action(ACTION_FETCH, Resource(kind=KIND_URL, identifier=url))
     try:
         return await fetch_url(url)
     except (ValidationError, BlockedURLError, FetchTooLargeError) as exc:

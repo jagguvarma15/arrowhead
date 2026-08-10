@@ -20,6 +20,23 @@ def test_control_characters_removed_but_whitespace_kept():
     assert sanitize_text("keep\ttab\nand\rreturn") == "keep\ttab\nand\rreturn"
 
 
+@pytest.mark.parametrize(
+    "codepoint",
+    [
+        0x2028,  # line separator
+        0x2029,  # paragraph separator
+        0x180E,  # Mongolian vowel separator
+        0x115F,  # Hangul choseong filler
+        0x1160,  # Hangul jungseong filler
+        0x3164,  # Hangul filler
+        0xFFA0,  # halfwidth Hangul filler
+        0x2800,  # Braille pattern blank
+    ],
+)
+def test_invisible_and_filler_characters_removed(codepoint):
+    assert sanitize_text(f"a{chr(codepoint)}b") == "ab"
+
+
 def test_zero_width_and_bidi_removed():
     assert sanitize_text("a​b‮c﻿d­e") == "abcde"
 

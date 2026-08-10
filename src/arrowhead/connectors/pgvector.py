@@ -14,6 +14,7 @@ search runs under the same read-only, time-bounded guarantees as a SQL read.
 """
 
 import json
+import math
 import re
 from datetime import UTC, datetime
 
@@ -26,12 +27,12 @@ from arrowhead.config import get_settings
 from arrowhead.connectors.sql import (
     _TIMEOUT_GRACE_SECONDS,
     SqlConnectorError,
-    _cell,
+    _collect,
+    _dialect_from_dsn,
     _get_engine,
     _session_guards,
 )
 from arrowhead.content.provenance import ProvenancedResult, wrap_content
-from arrowhead.content.text_safe import sanitize_text
 
 # A schema-qualified SQL identifier: the only shape a table or column name may
 # take before it is interpolated into a query. Values still come from the
@@ -50,14 +51,22 @@ async def vector_search(
     settings = get_settings()
     if not settings.sql_dsn:
         raise ToolError("the vector connector is not configured")
+    # The read-only transaction and statement timeout this connector runs are
+    # Postgres-specific; refuse a non-Postgres DSN with a clear message rather
+    # than emitting a Postgres SET to another engine at runtime.
+    dialect = settings.sql_dialect or _dialect_from_dsn(settings.sql_dsn)
+    if dialect != "postgres":
+        raise ToolError("vector search requires a PostgreSQL database")
     collection = _validate_collection(collection, settings)
     literal = _validate_embedding(embedding, settings)
     k = _bounded_k(k, settings)
 
     # The tenant is the authenticated caller, never an argument, so the WHERE
-    # clause cannot be widened to another tenant's rows.
+    # clause cannot be widened to another tenant's rows. The table is authorized
+    # under the same lowercased identity the SQL connector uses, so a policy
+    # that denies a table through sql_query also denies it here.
     tenant = authorize_action(
-        ACTION_QUERY, Resource(kind=KIND_TABLE, identifier=collection)
+        ACTION_QUERY, Resource(kind=KIND_TABLE, identifier=collection.lower())
     )
 
     try:
@@ -96,10 +105,18 @@ def _validate_embedding(embedding, settings) -> str:
         raise ToolError(
             f"embedding exceeds {settings.pgvector_max_dimensions} dimensions"
         )
+    floats: list[float] = []
     for value in embedding:
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             raise ToolError("embedding values must be numbers")
-    return "[" + ",".join(repr(float(v)) for v in embedding) + "]"
+        try:
+            number = float(value)
+        except OverflowError as exc:
+            raise ToolError("embedding value is out of range") from exc
+        if not math.isfinite(number):
+            raise ToolError("embedding values must be finite numbers")
+        floats.append(number)
+    return "[" + ",".join(repr(v) for v in floats) + "]"
 
 
 def _bounded_k(k, settings) -> int:
@@ -143,37 +160,25 @@ async def _search(collection, literal, k, tenant, settings):
     )
     bind = {"q": literal, "tenant": tenant, "k": k}
 
-    engine = _get_engine(settings.sql_dsn)
     guards = _session_guards("postgres", settings)
-    rows: list[dict] = []
-    truncated = False
-    total_bytes = 0
     try:
+        # The engine build is inside the wrapped block so a driver-load error
+        # (which leaks the backend name) becomes a clean connector error.
+        engine = _get_engine(settings.sql_dsn)
         with anyio.fail_after(settings.sql_timeout_seconds + _TIMEOUT_GRACE_SECONDS):
             async with engine.connect() as conn:
                 async with conn.begin():
                     for statement in guards:
                         await conn.execute(text(statement))
                     result = await conn.stream(text(query), bind)
-                    columns = [sanitize_text(str(c)) for c in result.keys()]
-                    async for row in result:
-                        record = {
-                            sanitize_text(str(column)): _cell(value)
-                            for column, value in row._mapping.items()
-                        }
-                        rows.append(record)
-                        total_bytes += len(str(record))
-                        if (
-                            len(rows) >= settings.sql_max_rows
-                            or total_bytes > settings.sql_max_bytes
-                        ):
-                            truncated = True
-                            break
-                    await result.close()
+                    # Reuse the SQL connector's row collector so the byte,
+                    # row, column, and per-cell caps stay identical here.
+                    return await _collect(result, settings)
+    except SqlConnectorError:
+        raise
     except TimeoutError as exc:
         raise SqlConnectorError("the query exceeded its time budget") from exc
     except SQLAlchemyError as exc:
         raise SqlConnectorError(f"query failed: {type(exc).__name__}") from exc
     except Exception as exc:
         raise SqlConnectorError(f"query failed: {type(exc).__name__}") from exc
-    return rows, columns, truncated

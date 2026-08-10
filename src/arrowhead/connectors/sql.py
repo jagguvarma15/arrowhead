@@ -1,21 +1,29 @@
 """SQL connector: the statement guard.
 
-Before any query reaches a database it is parsed and checked here, so the read
-path can only ever run a single read-only statement. The guard parses the query
-with a real SQL parser, requires exactly one statement (which stops a stacked
-`SELECT ...; DROP ...` from smuggling a second one), requires that statement to
-be a read (rejecting INSERT, UPDATE, DELETE, DDL, SET, and `SELECT ... INTO`),
-and returns the canonical statement to run together with the tables it reads.
+Before any query reaches a database it is parsed and checked here. The guard
+parses the query with a real SQL parser, bounds its nesting so a pathological
+statement cannot exhaust the parser stack, requires exactly one statement (which
+stops a stacked `SELECT ...; DROP ...` from smuggling a second one), requires
+that statement to be a read (rejecting INSERT, UPDATE, DELETE, DDL, SET, and
+`SELECT ... INTO`), rejects row-locking clauses (`FOR UPDATE`), and refuses a
+denylist of side-effecting, file, network, and administrative functions
+(`pg_read_file`, `dblink`, `query_to_xml`, `pg_terminate_backend`, `LOAD_FILE`,
+`BENCHMARK`, and the like) that a read query could otherwise smuggle. It returns
+the canonical statement to run together with the tables it reads.
 
-The canonical statement, not the caller's raw text, is what the connector
-executes, so comments and trailing whitespace cannot hide a second statement,
-and it is regenerated in the database's own dialect so no clause is silently
-dropped. The table set lets the authorizer scope a caller to the tables it may
-read; a query that reads no table is authorized against a sentinel resource so
-the policy still decides. The parser is the first line of defense: where the
-database supports it the connector also runs the statement in a read-only
-transaction under a server-side statement timeout, and a read-only database
-role is the recommended credential, so a bypass here is still refused.
+The single-statement check, not comment stripping, is what stops a second
+statement: the parser preserves comment bodies, so the guard relies on the
+statement count rather than on the canonical text being comment-free. The table
+set lets the authorizer scope a caller to the tables it may read; a query that
+reads no table is authorized against a dedicated tableless resource the default
+policy does not grant, so a functions-only query is denied unless a deployment
+opts in.
+
+The parser is defense in depth, not a complete sandbox. The primary controls are
+a least-privilege read-only database role and the network egress controls. On
+Postgres the connector additionally runs each query in a read-only transaction
+under a server-side statement timeout; other engines rely on the parser guard,
+the function denylist, the in-process deadline, and the read-only role.
 """
 
 import json
@@ -26,7 +34,12 @@ import anyio
 from fastmcp.exceptions import ToolError
 
 from arrowhead.authz.enforce import authorize_action
-from arrowhead.authz.policy import ACTION_QUERY, KIND_TABLE, Resource
+from arrowhead.authz.policy import (
+    ACTION_QUERY,
+    KIND_TABLE,
+    KIND_TABLELESS,
+    Resource,
+)
 from arrowhead.config import get_settings
 from arrowhead.content.provenance import ProvenancedResult, wrap_content
 from arrowhead.content.text_safe import sanitize_text
@@ -40,6 +53,75 @@ _TABLELESS_RESOURCE = "(no-table)"
 _MISSING_SQL_EXTRA = (
     "the SQL connector requires the 'sql' extra: install arrowhead[sql]"
 )
+
+# The parser is recursive-descent and exhausts the Python stack on deeply
+# nested parentheses (a RecursionError well under the length cap). Refuse a
+# query whose parenthesis nesting exceeds this before parsing; a real query
+# never approaches it.
+_MAX_PAREN_DEPTH = 32
+
+# Functions a read query must never call: they read files, reach the network,
+# run administrative side effects, or burn server resources, none of which the
+# single-SELECT and no-write-node checks catch (query_to_xml and dblink even
+# read a table without it appearing in the parsed statement). Matched by name,
+# case-insensitively, in any dialect, as defense in depth behind a read-only
+# database role.
+_DENIED_FUNCTIONS = frozenset(
+    {
+        # Postgres: files, large objects, network, admin, sleeps.
+        "pg_read_file",
+        "pg_read_binary_file",
+        "pg_read_server_files",
+        "pg_ls_dir",
+        "pg_stat_file",
+        "pg_reload_conf",
+        "pg_terminate_backend",
+        "pg_cancel_backend",
+        "pg_sleep",
+        "pg_sleep_for",
+        "pg_sleep_until",
+        "set_config",
+        "lo_import",
+        "lo_export",
+        "lo_get",
+        "lo_put",
+        "dblink",
+        "dblink_exec",
+        "dblink_connect",
+        "dblink_open",
+        "query_to_xml",
+        "query_to_xmlschema",
+        "query_to_xml_and_xmlschema",
+        "copy",
+        # MySQL / MariaDB: files, sleeps, benchmarks, locks, shell.
+        "load_file",
+        "sleep",
+        "benchmark",
+        "get_lock",
+        "release_lock",
+        "sys_exec",
+        "sys_eval",
+        # SQLite: extension loading and file IO.
+        "load_extension",
+        "readfile",
+        "writefile",
+        "fileio_read",
+        "edit",
+    }
+)
+
+
+def _reject_deep_nesting(query: str) -> None:
+    depth = 0
+    max_depth = 0
+    for char in query:
+        if char == "(":
+            depth += 1
+            max_depth = max(max_depth, depth)
+        elif char == ")":
+            depth = max(0, depth - 1)
+    if max_depth > _MAX_PAREN_DEPTH:
+        raise SqlGuardError("query nesting is too deep")
 
 
 class SqlGuardError(Exception):
@@ -71,9 +153,11 @@ def guard_read_query(query: str, *, dialect: str | None = None) -> GuardedQuery:
     except ImportError as exc:  # pragma: no cover - only without the extra
         raise SqlGuardError(_MISSING_SQL_EXTRA) from exc
 
+    _reject_deep_nesting(query)
+
     try:
         statements = sqlglot.parse(query, dialect=dialect)
-    except ParseError as exc:
+    except (ParseError, RecursionError) as exc:
         raise SqlGuardError("query could not be parsed") from exc
 
     statements = [statement for statement in statements if statement is not None]
@@ -100,6 +184,17 @@ def guard_read_query(query: str, *, dialect: str | None = None) -> GuardedQuery:
     )
     if root.find(*write_nodes) is not None:
         raise SqlGuardError("only read-only SELECT statements are allowed")
+
+    # A row-locking clause (FOR UPDATE, LOCK IN SHARE MODE) takes write locks
+    # and, where no read-only transaction applies, holds them with no timeout.
+    if root.find(exp.Lock) is not None:
+        raise SqlGuardError("row-locking clauses are not allowed")
+
+    # Refuse a denylisted function (files, network, admin, resource burn) that
+    # a read query could otherwise smuggle. These parse as unknown functions.
+    for func in root.find_all(exp.Anonymous):
+        if (func.name or "").lower() in _DENIED_FUNCTIONS:
+            raise SqlGuardError("query uses a function that is not allowed")
 
     return GuardedQuery(sql=root.sql(dialect=dialect), tables=_referenced_tables(root))
 
@@ -209,10 +304,19 @@ async def sql_query(
         raise ToolError(str(exc)) from exc
 
     # A scope lets the caller reach the tool; this scopes them to the tables.
-    # A tableless query is authorized against a sentinel so it cannot skip the
-    # check by referencing nothing.
-    for table in sorted(guarded.tables) or [_TABLELESS_RESOURCE]:
-        authorize_action(ACTION_QUERY, Resource(kind=KIND_TABLE, identifier=table))
+    # A tableless query is authorized against a dedicated resource kind the
+    # default policy does not grant, so a functions-only query cannot skip the
+    # check by referencing no table.
+    if guarded.tables:
+        for table in sorted(guarded.tables):
+            authorize_action(
+                ACTION_QUERY, Resource(kind=KIND_TABLE, identifier=table)
+            )
+    else:
+        authorize_action(
+            ACTION_QUERY,
+            Resource(kind=KIND_TABLELESS, identifier=_TABLELESS_RESOURCE),
+        )
 
     try:
         rows, columns, truncated = await _execute(guarded, bind, settings, dialect)
@@ -254,9 +358,12 @@ async def _execute(guarded: GuardedQuery, bind: dict, settings, dialect):
     except ImportError as exc:  # pragma: no cover - only without the extra
         raise SqlConnectorError(_MISSING_SQL_EXTRA) from exc
 
-    engine = _get_engine(settings.sql_dsn)
     guards = _session_guards(dialect, settings)
     try:
+        # Building the engine can raise a driver-load error that leaks the
+        # backend name, so it is inside the wrapped block and becomes a clean
+        # connector error like every other failure here.
+        engine = _get_engine(settings.sql_dsn)
         with anyio.fail_after(settings.sql_timeout_seconds + _TIMEOUT_GRACE_SECONDS):
             async with engine.connect() as conn:
                 if guards:
@@ -269,6 +376,10 @@ async def _execute(guarded: GuardedQuery, bind: dict, settings, dialect):
                         return await _collect(result, settings)
                 result = await conn.stream(text(guarded.sql), bind)
                 return await _collect(result, settings)
+    except SqlConnectorError:
+        # A cap breached inside _collect is already a precise message; keep it
+        # rather than flattening it into the generic failure below.
+        raise
     except TimeoutError as exc:
         raise SqlConnectorError("the query exceeded its time budget") from exc
     except SQLAlchemyError as exc:
@@ -282,10 +393,17 @@ async def _execute(guarded: GuardedQuery, bind: dict, settings, dialect):
 
 
 async def _collect(result, settings):
-    """Drain a streamed result into capped, sanitized rows and columns."""
+    """Drain a streamed result into capped, sanitized rows and columns.
+
+    Bytes, not characters, are counted; a single cell is length-bounded so an
+    enormous value is never sanitized or buffered in full; and the byte budget
+    is checked before a further row is appended, so no one row is accepted past
+    the cap.
+    """
     rows: list[dict] = []
     truncated = False
     total_bytes = 0
+    max_bytes = settings.sql_max_bytes
     # Column names are attacker-influenced when the queried table's DDL is not
     # fully trusted, so they are sanitized like values, both in the metadata
     # and as the keys of every row record.
@@ -296,28 +414,33 @@ async def _collect(result, settings):
             f"result exceeds {settings.sql_max_columns} columns"
         )
     async for row in result:
-        record = {
-            sanitize_text(str(column)): _cell(value)
-            for column, value in row._mapping.items()
-        }
+        record: dict = {}
+        for column, value in row._mapping.items():
+            key = sanitize_text(str(column))
+            if key in record:
+                # Two columns that sanitize to the same name would otherwise
+                # collapse into one, silently dropping a column's values.
+                key = f"{key}#{len(record)}"
+            record[key] = _cell(value, max_bytes)
+        row_bytes = len(json.dumps(record, default=str).encode("utf-8"))
+        if rows and total_bytes + row_bytes > max_bytes:
+            truncated = True
+            break
         rows.append(record)
-        total_bytes += len(str(record))
-        if (
-            len(rows) >= settings.sql_max_rows
-            or total_bytes > settings.sql_max_bytes
-        ):
+        total_bytes += row_bytes
+        if len(rows) >= settings.sql_max_rows or total_bytes >= max_bytes:
             truncated = True
             break
     await result.close()
     return rows, columns, truncated
 
 
-def _cell(value):
-    """Return a JSON-safe, sanitized form of a database value."""
+def _cell(value, max_len: int):
+    """Return a JSON-safe, sanitized, length-bounded form of a value."""
     if isinstance(value, str):
-        return sanitize_text(value)
+        return sanitize_text(value[:max_len])
     if value is None or isinstance(value, (int, float, bool)):
         return value
     if isinstance(value, bytes):
         return f"<{len(value)} bytes>"
-    return sanitize_text(str(value))
+    return sanitize_text(str(value)[:max_len])

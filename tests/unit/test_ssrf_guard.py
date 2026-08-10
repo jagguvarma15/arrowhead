@@ -109,3 +109,36 @@ def test_blocklist_classification():
     assert not is_blocked_address(
         ipaddress.ip_address("2606:2800:220:1:248:1893:25c8:1946")
     )
+
+
+def test_ipv6_embedded_ipv4_forms_classified_blocked():
+    # 64:ff9b::a9fe:a9fe embeds 169.254.169.254 via the NAT64 well-known
+    # prefix; ::a9fe:a9fe embeds it via the IPv4-compatible prefix. Python
+    # reports the wrappers as globally routable, so the guard must unwrap them.
+    assert is_blocked_address(ipaddress.ip_address("64:ff9b::a9fe:a9fe"))
+    assert is_blocked_address(ipaddress.ip_address("64:ff9b::7f00:1"))
+    assert is_blocked_address(ipaddress.ip_address("::a9fe:a9fe"))
+
+
+async def test_nat64_literal_metadata_rejected():
+    with pytest.raises(BlockedURLError):
+        await resolve_pinned("http://[64:ff9b::a9fe:a9fe]/latest/meta-data/")
+
+
+async def test_nat64_resolved_metadata_rejected(make_resolver):
+    resolver = make_resolver("64:ff9b::a9fe:a9fe")
+    with pytest.raises(BlockedURLError):
+        await resolve_pinned("http://nat64.example.com/", getaddrinfo=resolver)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.com:99999/",
+        "http://example.com:-1/",
+        "http://example.com:abc/",
+    ],
+)
+async def test_malformed_port_is_a_refusal(url, make_resolver):
+    with pytest.raises(BlockedURLError):
+        await resolve_pinned(url, getaddrinfo=make_resolver("93.184.216.34"))

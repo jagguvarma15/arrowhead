@@ -62,6 +62,13 @@ def test_embedding_validation():
         _validate_embedding([1, "x"], settings)
 
 
+def test_embedding_rejects_non_finite_and_oversized_values():
+    settings = _settings(pgvector_max_dimensions=4)
+    for bad in ([float("nan")], [float("inf")], [float("-inf")], [10**400]):
+        with pytest.raises(ToolError):
+            _validate_embedding(bad, settings)
+
+
 def test_k_is_bounded():
     settings = _settings(pgvector_max_k=50)
     assert _bounded_k(5, settings) == 5

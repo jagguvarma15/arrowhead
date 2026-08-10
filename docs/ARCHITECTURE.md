@@ -114,12 +114,13 @@ src/arrowhead/
   connectors/
     sql.py               vetted read-only SQL over a pooled async engine
     pgvector.py          pgvector search with server-side tenant isolation
+    tasks.py             handle-based async tasks, owner-scoped
   resources/
     documents.py         doc://{path} template + docs://index listing
   prompts/
     library.py           the curated, argument-sanitizing prompt set
   completions/
-    handlers.py          authorization-filtered argument completion
+    handlers.py          argument completion, wrapped in the tool-call guards
   security/
     ssrf_guard.py        resolve, block private ranges and ports, pin the address
     input_validation.py  shared allowlist validators

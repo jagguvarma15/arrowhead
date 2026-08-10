@@ -231,6 +231,41 @@ TOOL_SPECS: list[ToolSpec] = [
             "openWorldHint": False,
         },
     ),
+    ToolSpec(
+        name="scan_corpus_async",
+        import_path="arrowhead.connectors.tasks:scan_corpus_async",
+        scope="docs:scan",
+        rate_limit_attr="task_start_per_minute",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="task_get",
+        import_path="arrowhead.connectors.tasks:task_get",
+        scope="tasks:read",
+        rate_limit_attr="task_get_per_minute",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="task_update",
+        import_path="arrowhead.connectors.tasks:task_update",
+        scope="tasks:write",
+        rate_limit_attr="task_update_per_minute",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    ),
 ]
 
 
