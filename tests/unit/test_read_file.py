@@ -40,6 +40,25 @@ async def test_missing_file_reported_without_echoing_path(jail):
     assert "no/such/file.txt" not in str(excinfo.value)
 
 
+async def test_read_file_consults_authorizer(jail, monkeypatch):
+    from arrowhead.authz.enforce import get_authorizer
+    from arrowhead.config import get_settings
+
+    monkeypatch.setenv("ARROWHEAD_AUTH_ENABLED", "true")
+    monkeypatch.setenv(
+        "ARROWHEAD_AUTHZ_POLICY",
+        '{"grants": [{"subject": "*", "actions": ["read"], "prefix": "ok/"}]}',
+    )
+    get_settings.cache_clear()
+    get_authorizer.cache_clear()
+    (jail / "ok").mkdir()
+    (jail / "ok" / "f.txt").write_text("allowed")
+    (jail / "secret.txt").write_text("denied")
+    assert await read_file("ok/f.txt") == "allowed"
+    with pytest.raises(ToolError):
+        await read_file("secret.txt")
+
+
 async def test_oversized_file_rejected(jail, monkeypatch):
     from arrowhead.config import get_settings
 
