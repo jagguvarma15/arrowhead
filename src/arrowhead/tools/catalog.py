@@ -27,6 +27,9 @@ class ToolSpec:
     rate_limit_attr: the Settings attribute holding this tool's per-minute
         ceiling, so the limit stays configurable per deployment.
     annotations: MCP behavior hints (read-only, destructive, open-world).
+    icons: optional mcp.types.Icon entries for the tool. The built-in tools
+        ship without icons so the tool list that rides in every model context
+        stays lean; a deployment may attach its own.
     """
 
     name: str
@@ -34,6 +37,7 @@ class ToolSpec:
     scope: str
     rate_limit_attr: str
     annotations: dict = field(compare=False)
+    icons: tuple = field(default=(), compare=False)
 
     def __post_init__(self) -> None:
         if not self.scope:
