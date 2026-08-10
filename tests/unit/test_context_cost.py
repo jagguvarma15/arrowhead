@@ -5,6 +5,10 @@ server, so its size is budgeted per tool: each tool schema must stay under
 an average ceiling, which scales as tools are added rather than needing a
 new absolute number each time. The estimator is the standard rough cut of
 one token per four characters of serialized JSON.
+
+The budget accounts for the output schema each tool now publishes for
+structured results; icons are deliberately left off the built-in tools so
+they do not inflate the list that rides in every context.
 """
 
 import inspect
@@ -12,7 +16,7 @@ import json
 
 from fastmcp import Client
 
-PER_TOOL_TOKEN_BUDGET = 220
+PER_TOOL_TOKEN_BUDGET = 260
 CHARS_PER_TOKEN = 4
 
 
@@ -35,6 +39,14 @@ async def test_tool_schemas_fit_the_per_tool_budget(stdio_transport):
         f"tool schemas average ~{average:.0f} tokens each, "
         f"budget is {PER_TOOL_TOKEN_BUDGET}"
     )
+
+
+async def test_every_tool_publishes_an_output_schema(stdio_transport):
+    # Structured output: every tool declares the shape of its result so a
+    # client receives typed data rather than only a text blob.
+    tools = await _list_tools(stdio_transport)
+    for tool in tools:
+        assert tool.outputSchema is not None, tool.name
 
 
 async def test_every_tool_description_includes_an_example(stdio_transport):
