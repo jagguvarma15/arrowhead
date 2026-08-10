@@ -17,6 +17,10 @@ import anyio
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
 DEFAULT_PORTS = {"http": 80, "https": 443}
+# The ports a URL may target unless a deployment widens the set. Restricting
+# these keeps a public-but-attacker-chosen host from being used to reach an
+# internal service listening on a non-web port (SSH on 22, Redis on 6379).
+DEFAULT_ALLOWED_PORTS = frozenset({80, 443})
 
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 
@@ -68,17 +72,23 @@ async def resolve_pinned(
     *,
     getaddrinfo=None,
     allowed_hosts: frozenset[str] | None = None,
+    allowed_ports: frozenset[int] | None = None,
 ) -> PinnedTarget:
     """Vet a URL and pin the address the caller must connect to.
 
-    Raises BlockedURLError for disallowed schemes, unresolvable hosts, and
-    any host whose resolution includes a non-public address. Every resolved
-    address must pass, since an attacker can mix public and private records.
+    Raises BlockedURLError for disallowed schemes, disallowed ports,
+    unresolvable hosts, and any host whose resolution includes a non-public
+    address. Every resolved address must pass, since an attacker can mix
+    public and private records.
 
     When allowed_hosts is a non-empty set of lowercased hostnames, the URL's
     host must be one of them; every other host is refused even if it resolves
     to a public address. This is the destination allowlist shared by every
     URL-addressed caller.
+
+    The target port must be 80 or 443, or one of allowed_ports when a
+    deployment configures extras, so a public host cannot be used to reach an
+    internal service on a non-web port.
     """
     parts = urlsplit(url)
     scheme = parts.scheme.lower()
@@ -90,6 +100,8 @@ async def resolve_pinned(
     if allowed_hosts and host.lower() not in allowed_hosts:
         raise BlockedURLError("host is not in the egress allowlist")
     port = parts.port if parts.port is not None else DEFAULT_PORTS[scheme]
+    if port not in (DEFAULT_ALLOWED_PORTS | (allowed_ports or frozenset())):
+        raise BlockedURLError("port is not allowed")
 
     addresses = await _resolve(host, port, getaddrinfo)
     for address in addresses:
