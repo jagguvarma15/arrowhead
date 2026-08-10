@@ -39,6 +39,9 @@ SUBJECT_TOKEN = "${subject}"  # noqa: S105  # a path template token, not a secre
 KIND_DOCUMENT = "document"
 KIND_PREFIX = "prefix"
 KIND_URL = "url"
+# A file read from the read_file jail, identified by its jail-relative path.
+# Like a document it is a point resource: it must sit under a granted prefix.
+KIND_FILE = "file"
 # A database table, identified as "schema.table" (or "database.schema.table").
 # Like a document it is a point resource: it must sit under a granted prefix.
 KIND_TABLE = "table"
