@@ -132,3 +132,8 @@ class TestWriteContent:
     def test_oversized_rejected(self):
         with pytest.raises(ValidationError):
             validate_write_content("x" * 50, max_bytes=8)
+
+
+def test_backslash_path_is_rejected():
+    with pytest.raises(ValidationError):
+        validate_relative_path("a\\..\\..\\etc")
