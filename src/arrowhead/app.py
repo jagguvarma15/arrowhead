@@ -31,6 +31,8 @@ from arrowhead.server import create_server
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
+    from fastmcp.prompts.prompt import PromptResult
+    from fastmcp.resources.resource import ResourceResult
     from fastmcp.tools.tool import ToolResult
     from mcp.types import Tool
 
@@ -85,6 +87,38 @@ class Arrowhead:
         """List the tools visible to the current caller."""
         with self._activate():
             return list(await self.server.list_tools())
+
+    async def read_resource(self, uri: str) -> ResourceResult:
+        """Read a resource through the full hardened path.
+
+        A read that is unauthorized or fails raises, exactly as it does over
+        the wire; the same per-resource authorization and sanitization apply.
+        """
+        with self._activate():
+            return await self.server.read_resource(uri)
+
+    async def get_prompt(
+        self, name: str, arguments: dict | None = None
+    ) -> PromptResult:
+        """Render a prompt through the full hardened path."""
+        with self._activate():
+            return await self.server.render_prompt(name, arguments or {})
+
+    async def complete(self, argument_name: str, value: str = "") -> list[str]:
+        """Return authorized completion values for an argument.
+
+        Completions are filtered by the caller's authorization, so this never
+        returns a resource the caller could not read.
+        """
+        from mcp.types import CompletionArgument
+
+        from arrowhead.completions.handlers import complete_argument
+
+        with self._activate():
+            result = await complete_argument(
+                None, CompletionArgument(name=argument_name, value=value), None
+            )
+        return list(result.values) if result is not None else []
 
     def http_app(self, **kwargs):
         """Return the ASGI application for serving the server over HTTP."""
