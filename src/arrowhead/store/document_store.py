@@ -16,6 +16,11 @@ from pathlib import Path
 
 from arrowhead.config import Settings
 
+# Prefix of the temporary file an atomic write creates in the destination
+# directory. Listings and the quota walk skip it so a half-written document is
+# never enumerated, read, or counted while the write is still in flight.
+_TMP_PREFIX = ".arrowhead-tmp-"
+
 
 class DocumentStoreError(Exception):
     """A document operation could not be completed safely."""
@@ -132,6 +137,9 @@ class DocumentStore:
         for dirpath, dirnames, filenames in os.walk(self._root, followlinks=False):
             dirnames.sort()
             for name in sorted(filenames):
+                if name.startswith(_TMP_PREFIX):
+                    # An in-flight atomic write; not a readable document.
+                    continue
                 full = Path(dirpath) / name
                 if full.is_symlink() and not full.resolve().is_relative_to(
                     self._root
@@ -157,8 +165,30 @@ class DocumentStore:
         return Listing(items=results, truncated=False)
 
     def total_size(self) -> int:
-        """Total size of all documents currently in the corpus."""
-        return sum(info.size for info in self.list().items)
+        """Total size of all documents currently in the corpus.
+
+        A direct walk that sums sizes without materializing the full listing,
+        skipping in-flight temporary write files so they are not counted
+        against the quota. It is O(corpus file count), the inherent cost of an
+        accurate quota check.
+        """
+        if not self._root.is_dir():
+            return 0
+        total = 0
+        for dirpath, _dirnames, filenames in os.walk(
+            self._root, followlinks=False
+        ):
+            for name in filenames:
+                if name.startswith(_TMP_PREFIX):
+                    continue
+                full = Path(dirpath) / name
+                if full.is_symlink() and not full.resolve().is_relative_to(
+                    self._root
+                ):
+                    continue
+                if full.is_file():
+                    total += full.stat().st_size
+        return total
 
     def write_atomic(
         self, relative_path: str, data: bytes, *, overwrite: bool = False
@@ -191,7 +221,7 @@ class DocumentStore:
 
         parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(
-            dir=parent, prefix=".arrowhead-tmp-", suffix=resolved.suffix
+            dir=parent, prefix=_TMP_PREFIX, suffix=resolved.suffix
         )
         try:
             with os.fdopen(fd, "wb") as handle:
