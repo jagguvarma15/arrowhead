@@ -9,6 +9,8 @@ bytes are bounded, and every returned snippet is sanitized and carries the
 untrusted-data notice.
 """
 
+from typing import TypedDict
+
 import anyio
 from fastmcp.exceptions import ToolError
 
@@ -37,9 +39,27 @@ from arrowhead.security.search_match import (
 from arrowhead.store.document_store import DocumentStoreError, build_document_store
 
 
+class SearchMatch(TypedDict):
+    """One matching line: the document, the line number, and a sanitized snippet."""
+
+    path: str
+    line: int
+    snippet: str
+
+
+class SearchResult(TypedDict):
+    """The bounded, sanitized result of a corpus search."""
+
+    notice: str
+    query: str
+    match_count: int
+    truncated: bool
+    matches: list[SearchMatch]
+
+
 async def doc_search(
     query: str, path_prefix: str = "", use_regex: bool = False
-) -> dict:
+) -> SearchResult:
     """Search corpus documents for a query and return bounded, sanitized
     snippets. Literal by default; set use_regex when enabled. Example:
     doc_search(query="deadline", path_prefix="notes/").
