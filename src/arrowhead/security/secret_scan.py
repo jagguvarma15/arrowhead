@@ -1,16 +1,24 @@
 """Secrets and PII scanning that never returns the raw value.
 
 Each finding reports a type, a line number, and a redacted placeholder of
-the form [REDACTED:TYPE:tag], where the tag is a short, non-reversible hash
-of the matched value. The same secret produces the same tag, which lets a
-caller correlate occurrences without ever seeing the secret. Patterns are
-fixed and linear (no user-supplied regex), so scanning has no ReDoS
-surface.
+the form [REDACTED:TYPE:tag]. The tag is a keyed hash of the matched value
+under a random per-process salt: within one run the same value redacts to the
+same tag, so a caller can correlate occurrences, but the tag cannot be
+brute-forced back to a low-entropy value such as an SSN or email, because the
+salt is secret and is never persisted or returned. Patterns are fixed and
+linear (no user-supplied regex), so scanning has no ReDoS surface.
 """
 
 import hashlib
 import re
+import secrets
 from dataclasses import dataclass
+
+# A random per-process salt. It keeps the redaction tag stable within a run
+# (the intended correlation signal) while making the tag non-reversible: an
+# 8-hex-character SHA-256 of an SSN or email is trivially brute-forced, but
+# not without this salt.
+_SALT = secrets.token_bytes(16)
 
 # Ordered so more specific patterns are reported before the generic ones.
 _PATTERNS: list[tuple[str, re.Pattern]] = [
@@ -42,16 +50,27 @@ class Finding:
 
 
 def _redact(value: str, kind: str) -> str:
-    tag = hashlib.sha256(value.encode("utf-8")).hexdigest()[:8]
+    tag = hashlib.sha256(_SALT + value.encode("utf-8")).hexdigest()[:8]
     return f"[REDACTED:{kind.upper()}:{tag}]"
 
 
 def scan_text(text: str, *, max_findings: int) -> list[Finding]:
-    """Return redacted findings for secrets and PII in the text."""
+    """Return redacted findings for secrets and PII in the text.
+
+    Patterns run most-specific first; a match that overlaps one already
+    recorded on the same line is skipped, so a single secret that matches two
+    patterns (a JWT that is also a credential assignment) is reported once and
+    does not consume two of the finding slots.
+    """
     findings: list[Finding] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
+        claimed: list[tuple[int, int]] = []
         for kind, pattern in _PATTERNS:
             for match in pattern.finditer(line):
+                span = match.span(1) if match.groups() else match.span(0)
+                if any(span[0] < end and start < span[1] for start, end in claimed):
+                    continue
+                claimed.append(span)
                 value = match.group(1) if match.groups() else match.group(0)
                 findings.append(
                     Finding(type=kind, line=lineno, redacted=_redact(value, kind))
