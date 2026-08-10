@@ -24,6 +24,22 @@ def test_zero_width_and_bidi_removed():
     assert sanitize_text("a​b‮c﻿d­e") == "abcde"
 
 
+def test_bidi_isolates_removed():
+    # LRI, RLI, FSI, PDI smuggle direction the way the older overrides do.
+    assert sanitize_text("a⁦b⁩c") == "abc"
+
+
+def test_unicode_tags_block_removed():
+    # The Tags block (U+E0000-U+E007F) hides an ASCII message in tag chars.
+    hidden = "".join(chr(0xE0000 + ord(c)) for c in "drop table")
+    assert sanitize_text(f"note{hidden}") == "note"
+
+
+def test_variation_selectors_removed():
+    assert sanitize_text("a️b") == "ab"
+    assert sanitize_text("a\U000e0100b") == "ab"
+
+
 def test_nfc_normalization():
     # 'e' + combining acute accent normalizes to the single precomposed char.
     assert sanitize_text("é") == "é"
