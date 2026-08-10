@@ -220,6 +220,17 @@ TOOL_SPECS: list[ToolSpec] = [
             "openWorldHint": False,
         },
     ),
+    ToolSpec(
+        name="vector_search",
+        import_path="arrowhead.connectors.pgvector:vector_search",
+        scope="vector:search",
+        rate_limit_attr="vector_search_per_minute",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
 ]
 
 
