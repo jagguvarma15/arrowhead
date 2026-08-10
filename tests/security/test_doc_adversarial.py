@@ -82,9 +82,15 @@ async def test_catastrophic_regex_is_bounded(docs, monkeypatch):
     monkeypatch.setenv("ARROWHEAD_SEARCH_REGEX_TIMEOUT_MS", "100")
     get_settings.cache_clear()
     (docs / "target.txt").write_text("a" * 300 + "!")
-    # Must return (possibly aborting the pattern), never hang.
-    result = await doc_search(r"(a+)+$", use_regex=True)
-    assert "match_count" in result
+    # Must never hang: either the search returns a bounded result, or the
+    # per-match timeout aborts it with a clean error. Both satisfy the bound;
+    # which occurs depends only on how fast the host evaluates the pattern, so
+    # accepting either keeps the test deterministic.
+    try:
+        result = await doc_search(r"(a+)+$", use_regex=True)
+        assert "match_count" in result
+    except ToolError as exc:
+        assert "timed out" in str(exc)
 
 
 SECRET_VALUES = [
