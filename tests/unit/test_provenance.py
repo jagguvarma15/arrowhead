@@ -34,3 +34,15 @@ def test_content_is_delimited():
     assert body.startswith("<<UNTRUSTED-")
     assert body.rstrip().endswith(">>")
     assert "payload" in body
+
+
+def test_source_metadata_is_sanitized():
+    # A caller-supplied source (a fetched URL) must not smuggle escapes or
+    # invisible characters into the metadata channel.
+    wrapped = wrap_content(
+        "body",
+        source="http://x/\x1b[31m​ evil",
+        content_format="txt",
+        retrieved_at="t",
+    )
+    assert wrapped["metadata"]["source"] == "http://x/evil"
