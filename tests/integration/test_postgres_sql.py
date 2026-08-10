@@ -40,8 +40,11 @@ async def test_statement_timeout_stops_a_long_query(
     from arrowhead.connectors.sql import dispose_engines, sql_query
 
     try:
+        # A slow but allowed query (pg_sleep is refused by the function
+        # denylist before it reaches the database); the server-side statement
+        # timeout must stop it and surface a clean error.
         with pytest.raises(ToolError):
-            await sql_query("SELECT pg_sleep(30)")
+            await sql_query("SELECT count(*) FROM generate_series(1, 100000000000)")
     finally:
         await dispose_engines()
 
