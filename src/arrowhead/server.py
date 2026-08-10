@@ -67,7 +67,12 @@ def create_server() -> FastMCP:
         # string, a driver name, or a database error.
         mask_error_details=True,
     )
-    register_components(mcp, enforce_scopes=settings.auth_enabled)
+    register_components(
+        mcp,
+        enforce_scopes=settings.auth_enabled,
+        rate_limiter=rate_limiter,
+        disabled=settings.disabled_tool_set(),
+    )
     attach_list_cache_hints(
         mcp, settings.tool_list_ttl_ms, settings.resource_read_ttl_ms
     )
