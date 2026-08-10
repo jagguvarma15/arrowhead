@@ -9,6 +9,7 @@ returned or logged.
 """
 
 import time
+from typing import TypedDict
 
 import anyio
 from fastmcp.exceptions import ToolError
@@ -23,7 +24,27 @@ from arrowhead.security.secret_scan import scan_text
 from arrowhead.store.document_store import DocumentStoreError, build_document_store
 
 
-async def doc_scan(path_prefix: str = "") -> dict:
+class ScanFinding(TypedDict):
+    """One redacted finding: the document, the line, the type, and a placeholder."""
+
+    path: str
+    line: int
+    type: str
+    match: str
+
+
+class ScanResult(TypedDict):
+    """The redacted result of a corpus secrets-and-PII scan."""
+
+    notice: str
+    path_prefix: str
+    files_scanned: int
+    finding_count: int
+    truncated: bool
+    findings: list[ScanFinding]
+
+
+async def doc_scan(path_prefix: str = "") -> ScanResult:
     """Scan corpus documents for secrets and PII and return redacted
     findings (type, location, and a hashed placeholder, never the raw
     value). Example: doc_scan(path_prefix="exports/").
