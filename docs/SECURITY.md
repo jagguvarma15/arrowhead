@@ -17,9 +17,15 @@ caller should never touch.
 - The scheme must be `http` or `https`; everything else (`file:`, `gopher:`,
   `dict:`, …) is refused before any network activity.
 - The hostname is resolved and every resolved address is checked. If any
-  address is not globally routable unicast — private, loopback, link-local,
-  carrier-grade NAT, multicast, or the metadata address — the request is
-  refused. Mixed public-and-private DNS answers are refused as a whole.
+  address is not globally routable unicast (private, loopback, link-local,
+  carrier-grade NAT, multicast, or the metadata address) the request is
+  refused. An IPv4 address embedded in an IPv6 wrapper (IPv4-mapped, 6to4,
+  Teredo, NAT64, or IPv4-compatible) is unwrapped and re-checked, so
+  `64:ff9b::a9fe:a9fe` cannot reach the metadata endpoint through a NAT64
+  gateway. Mixed public-and-private DNS answers are refused as a whole.
+- The port must be `80`, `443`, or one a deployment explicitly allow-listed
+  (validated at startup); a malformed port is a clean refusal, not an
+  unhandled error.
 - The approved address is **pinned**: the connection is made to that exact IP
   while the original hostname travels in the `Host` header and as the TLS
   server name. Because the address is never re-resolved between the check and
@@ -154,9 +160,14 @@ flag and, when the client supports it, human confirmation via elicitation
 bound to the token subject; an explicit decline blocks the write.
 
 **Secret and PII redaction** (`security/secret_scan.py`). `doc_scan` reports a
-type, a location, and a redacted placeholder `[REDACTED:TYPE:tag]` whose tag is
-a short non-reversible hash. The raw value is never returned or logged; an
-adversarial test asserts this for each secret type.
+type, a location, and a redacted placeholder `[REDACTED:TYPE:tag]`. The raw
+value is never returned or logged; an adversarial test asserts this for each
+secret type. The tag is a hash of the value keyed by a random per-process salt,
+so the same value redacts to the same tag within one run (letting a caller
+correlate occurrences) but cannot be brute-forced back to a low-entropy value
+such as an SSN or email, since the salt is secret and never persisted. The
+correlation therefore holds within a process, not across restarts. Overlapping
+matches for one secret are reported once.
 
 **Search denial-of-service** (`security/search_match.py`). Search is literal by
 default. Regex is opt-in and disabled by default, and when enabled runs through
@@ -177,15 +188,28 @@ still served.
 ## Data connectors: `sql_query`, `vector_search`
 
 The SQL connector never runs the caller's raw text. A statement is parsed in the
-database's own dialect (derived from the DSN), and only a single read-only
-`SELECT` survives: stacked statements, every write form, DDL, and `SET` are
-refused. The canonical statement, not the raw text, is executed, so comments
-cannot hide a second statement. Every referenced table is authorized, and a
-query that reads no table is authorized against a sentinel so it cannot skip the
-check. As defense in depth behind the parser, the connector runs each query in a
-read-only transaction under a server-side statement timeout, and a read-only
-database role is the recommended credential. Column names, not just values, are
-sanitized before they leave the process.
+database's own dialect (derived from the DSN, or set explicitly and validated at
+startup), its parenthesis nesting is bounded so a pathological query cannot
+exhaust the parser stack, and only a single read-only `SELECT` survives: stacked
+statements, every write form, DDL, `SET`, and row-locking clauses (`FOR UPDATE`)
+are refused. A denylist of side-effecting, file, network, and administrative
+functions (`pg_read_file`, `dblink`, `query_to_xml`, `pg_terminate_backend`,
+`LOAD_FILE`, `BENCHMARK`, and the like) is refused as well, since a read query
+could otherwise smuggle a table read or a side effect inside a function. Every
+referenced table is authorized; a query that reads no table is authorized
+against a dedicated tableless resource the default policy does not grant, so a
+functions-only query is denied unless a deployment opts in.
+
+The single-statement check, not comment stripping, is what stops a second
+statement: the parser preserves comment bodies, so the security property comes
+from the statement count. The parser is defense in depth, not a complete
+sandbox: the primary controls are a least-privilege read-only database role and
+the network egress controls. On Postgres the connector additionally runs each
+query in a read-only transaction under a server-side statement timeout; other
+engines rely on the parser guard, the function denylist, the in-process
+deadline, and the read-only role. Results are bounded by byte count (measured in
+bytes, per cell and in total), row count, and column count, and column names,
+not just values, are sanitized before they leave the process.
 
 `vector_search` adds tenant isolation as a first-class control: the collection
 must be one a deployment allow-listed (the table name is never taken raw from
@@ -202,9 +226,27 @@ so `doc://{path}` is exactly as safe as `doc_read`. Prompts reference documents
 by resource URI or by a tool call rather than inlining corpus text, and sanitize
 their arguments, so the instruction channel cannot carry untrusted content.
 Completion candidates pass the same per-document read authorization as search,
-so completion never reveals a path the caller could not read. Audit logging,
-rate limiting, and the kill switch cover resource reads and prompt gets, not
-only tool calls.
+so completion never reveals a path the caller could not read. Because the
+low-level completion path bypasses the middleware chain, its handler is wrapped
+so a completion passes the same per-caller rate limit, kill switch, and audit
+line as a tool call; a rate-limited or disabled completion returns no values
+without running the corpus walk. Audit logging, rate limiting, and the kill
+switch cover resource reads, prompt gets, and completions, not only tool
+calls.
+
+## Asynchronous tasks
+
+Long-running work (a background corpus scan) is exposed as ordinary guarded
+tools that pass a server-minted task handle as an argument, following the
+2026-07-28 stateless pattern rather than a protocol session. The start tool
+authorizes the work and records the caller as the task's owner; `task_get` and
+`task_update` resolve the handle only for that owner, so a caller can see or
+cancel only its own tasks and a handle it does not own is reported as simply not
+found. The task registry is in process, so a task is visible only on the
+instance that created it; a multi-instance deployment would back it with the
+shared rate-limit store. The wire-level tasks extension is not adopted, because
+the stable SDK the server runs on does not speak it (see the specification
+target below).
 
 ## Abuse controls and observability
 
@@ -216,7 +258,8 @@ only tool calls.
 - **Audit log** (`observability/audit_log.py`): one structured JSON line per
   call on stdout with caller identity, tool, argument *shapes* (never values),
   status, and latency, for the platform's log drain. Redaction happens at the
-  source, so secrets in arguments never reach log storage.
+  source, so secrets in arguments never reach log storage. A resource read is
+  logged by its scheme and path shape, never the caller-supplied path itself.
 - **Tracing and metrics** (`observability/tracing.py`, `telemetry.py`,
   `metrics.py`): an OpenTelemetry span per call that joins the caller's W3C
   trace context, plus tool-call and duration metrics. Both export over OTLP/HTTP
@@ -229,3 +272,24 @@ FastMCP does not terminate TLS. In any non-local deployment the hosting
 platform or a reverse proxy must provide HTTPS. The HTTP endpoint also enforces
 `Host` and `Origin` allowlists (configurable) to defend against DNS rebinding
 of the endpoint itself.
+
+Serving HTTP with authentication disabled would expose every tool over the
+network with no scope or per-resource check, so the server refuses to start in
+that configuration unless a deployment sets `ARROWHEAD_ALLOW_INSECURE_HTTP` for
+a deliberate trusted-network test.
+
+## MCP specification target
+
+Arrowhead targets the 2026-07-28 MCP specification at the application level
+while running on the stable FastMCP line, which speaks the 2025-11-25 wire. The
+changes the server owns are adopted now: a valid `private` cache scope with
+`ttlMs` on every cacheable list and read result, a deterministic list order, an
+accurate `serverInfo` version, error-detail masking, and no dependence on the
+now-deprecated Roots, Sampling, or Logging features. The changes that are the
+SDK's to make (the stateless core, `server/discover`, Multi Round-Trip Requests,
+native `CacheableResult`, and the wire-level tasks extension) are deferred until
+a stable FastMCP release speaks 2026-07-28; the only release that does today is a
+pre-release the MCP maintainers label as not for critical workloads, which a
+secure data plane should not depend on. Elicitation (used for destructive-write
+confirmation) is already stateless in shape, keeping no session-bound state, so
+it maps onto the new Multi Round-Trip pattern without a redesign.
