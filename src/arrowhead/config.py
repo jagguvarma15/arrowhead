@@ -118,6 +118,10 @@ class Settings(BaseSettings):
     # genuinely public but attacker-chosen host is otherwise fetchable. Empty
     # allows any public host; the SSRF guard still blocks private ranges.
     egress_allowed_hosts: str = ""
+    # Extra outbound ports permitted beyond 80 and 443 (comma-separated). Empty
+    # allows only the two web ports, so a public host cannot be used to reach an
+    # internal service listening on a non-web port.
+    egress_allowed_ports: str = ""
 
     # calculate
     expression_max_length: int = 200
@@ -212,6 +216,15 @@ class Settings(BaseSettings):
             host.strip().lower()
             for host in self.egress_allowed_hosts.split(",")
             if host.strip()
+        )
+
+    def egress_allowed_ports_set(self) -> frozenset[int]:
+        """Extra ports the fetch tools may reach beyond 80 and 443; empty
+        allows only the two web ports."""
+        return frozenset(
+            int(port.strip())
+            for port in self.egress_allowed_ports.split(",")
+            if port.strip()
         )
 
 
