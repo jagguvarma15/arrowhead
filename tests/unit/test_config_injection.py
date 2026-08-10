@@ -42,3 +42,11 @@ def test_malformed_egress_port_is_rejected_at_construction():
         8443,
         9000,
     }
+
+
+def test_sql_dialect_is_canonicalized_and_validated():
+    # the natural value "postgresql" is canonicalized, not silently ignored
+    assert Settings(sql_dialect="postgresql").sql_dialect == "postgres"
+    assert Settings(sql_dialect="").sql_dialect == ""
+    with pytest.raises(ValidationError):
+        Settings(sql_dialect="bogus")
