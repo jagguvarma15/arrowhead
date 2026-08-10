@@ -8,9 +8,10 @@ Response bodies are capped in size. The caller's MCP credentials are never
 attached to outbound requests.
 
 Holding the tool's scope is necessary but not sufficient: the fetch is also
-authorized against the policy, so a deployment can deny outbound reads to a
-caller without disabling the tool for everyone. The egress allowlist remains
-the destination control.
+authorized against the policy under its own `fetch` action, distinct from
+document reads, so a deployment can deny a caller outbound fetch without
+denying its document reads. The egress allowlist remains the destination
+control.
 """
 
 from typing import TypedDict
