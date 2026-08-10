@@ -20,7 +20,7 @@ import httpx
 from fastmcp.exceptions import ToolError
 
 from arrowhead.authz.enforce import authorize_action
-from arrowhead.authz.policy import ACTION_READ, KIND_URL, Resource
+from arrowhead.authz.policy import ACTION_FETCH, KIND_URL, Resource
 from arrowhead.config import get_settings
 from arrowhead.security.input_validation import ValidationError, validate_url
 from arrowhead.security.ssrf_guard import BlockedURLError, resolve_pinned
@@ -47,7 +47,7 @@ async def safe_fetch(url: str) -> FetchResult:
         validate_url(url)
     except ValidationError as exc:
         raise ToolError(str(exc)) from exc
-    authorize_action(ACTION_READ, Resource(kind=KIND_URL, identifier=url))
+    authorize_action(ACTION_FETCH, Resource(kind=KIND_URL, identifier=url))
     try:
         return await fetch_url(url)
     except (ValidationError, BlockedURLError, FetchTooLargeError) as exc:
