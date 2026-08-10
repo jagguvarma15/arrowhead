@@ -185,10 +185,13 @@ class Settings(BaseSettings):
     # without a code change, e.g. ARROWHEAD_DISABLED_TOOLS=safe_fetch
     disabled_tools: str = ""
 
-    # how long clients may cache the tool list; it only changes on
-    # deploy or when the kill switch flips, both of which restart the
-    # process anyway
+    # how long clients may cache a list result (tools, resources, resource
+    # templates, prompts); a list only changes on deploy or when the kill
+    # switch flips, both of which restart the process anyway
     tool_list_ttl_ms: int = 3_600_000
+    # how long clients may cache a single resource read; a document changes
+    # only on a write, so this is shorter than the list TTL
+    resource_read_ttl_ms: int = 60_000
 
     # OpenTelemetry export. Spans and metrics are no-ops unless an OTLP
     # endpoint is set, so telemetry costs nothing until it is configured.
