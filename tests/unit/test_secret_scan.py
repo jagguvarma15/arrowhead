@@ -48,3 +48,23 @@ def test_max_findings_bound():
 
 def test_clean_text_has_no_findings():
     assert scan_text("nothing to see here", max_findings=10) == []
+
+
+def test_redaction_tag_is_salted_not_a_plain_hash():
+    import hashlib
+
+    finding = scan_text("ssn 123-45-6789", max_findings=10)[0]
+    # An unsalted SHA-256 of an SSN is trivially brute-forced; the tag must not
+    # be that precomputable value.
+    plain = hashlib.sha256(b"123-45-6789").hexdigest()[:8]
+    assert plain not in finding.redacted
+    assert finding.type == "us_ssn"
+
+
+def test_overlapping_patterns_yield_one_finding():
+    # This line matches both jwt and credential_assignment over the same span;
+    # it must be reported once, not consume two finding slots.
+    line = "token: eyJhbGciOiJIUzI.eyJzdWIiOiJ.SflKxwRJSMeKKF"
+    findings = scan_text(line, max_findings=10)
+    assert len(findings) == 1
+    assert findings[0].type == "jwt"
