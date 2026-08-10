@@ -145,6 +145,18 @@ class Settings(BaseSettings):
     # in addition where the database supports it.
     sql_timeout_seconds: float = 10.0
 
+    # pgvector collection search (postgres extra), over the sql_dsn database.
+    # Only these collections (comma-separated table names) may be searched; the
+    # tenant filter is the authenticated caller, not an argument. The column
+    # names default to a common convention and are overridable per deployment.
+    pgvector_collections: str = ""
+    pgvector_tenant_column: str = "tenant"
+    pgvector_id_column: str = "id"
+    pgvector_content_column: str = "content"
+    pgvector_embedding_column: str = "embedding"
+    pgvector_max_k: int = 50
+    pgvector_max_dimensions: int = 2000
+
     # abuse controls. Ceilings are calls per caller per minute; network-
     # bound safe_fetch gets a low ceiling, cheap calculate a high one.
     # With ARROWHEAD_REDIS_URL set, buckets live in Redis and the limits
@@ -159,6 +171,7 @@ class Settings(BaseSettings):
     doc_scan_per_minute: int = 20
     doc_write_per_minute: int = 30
     sql_query_per_minute: int = 60
+    vector_search_per_minute: int = 30
     # Ceilings for the non-tool components. Reading a resource and getting a
     # prompt are rate-limited per caller just as a tool call is.
     resource_read_per_minute: int = 60
@@ -220,6 +233,14 @@ class Settings(BaseSettings):
             host.strip().lower()
             for host in self.egress_allowed_hosts.split(",")
             if host.strip()
+        )
+
+    def pgvector_collection_set(self) -> frozenset[str]:
+        """The vector collections a caller may search; empty allows none."""
+        return frozenset(
+            name.strip()
+            for name in self.pgvector_collections.split(",")
+            if name.strip()
         )
 
     def egress_allowed_ports_set(self) -> frozenset[int]:
