@@ -46,6 +46,18 @@ class DocumentInfo:
     extension: str
 
 
+@dataclass(frozen=True)
+class Listing:
+    """A bounded listing of documents and whether the cap cut it short.
+
+    truncated is True when the max_files cap stopped the walk, so a caller
+    reports an incomplete listing rather than silently missing matches.
+    """
+
+    items: list[DocumentInfo]
+    truncated: bool
+
+
 class DocumentStore:
     """Filesystem-backed document corpus confined to a single root."""
 
@@ -104,14 +116,18 @@ class DocumentStore:
         *,
         extensions: frozenset[str] | None = None,
         max_files: int | None = None,
-    ) -> list[DocumentInfo]:
-        """List documents in the corpus, bounded and symlink-safe.
+        path_prefix: str = "",
+    ) -> Listing:
+        """List documents in the corpus, bounded, prefix-filtered, symlink-safe.
 
-        Directory symlinks are not followed. A file symlink whose target
-        escapes the corpus is skipped rather than listed.
+        Only documents whose corpus-relative path starts with path_prefix are
+        returned, and the max_files cap counts those matches, so a match beyond
+        the cap sets truncated rather than silently vanishing. Directory
+        symlinks are not followed; a file symlink whose target escapes the
+        corpus is skipped rather than listed.
         """
         if not self._root.is_dir():
-            return []
+            return Listing(items=[], truncated=False)
         results: list[DocumentInfo] = []
         for dirpath, dirnames, filenames in os.walk(self._root, followlinks=False):
             dirnames.sort()
@@ -126,20 +142,23 @@ class DocumentStore:
                 extension = full.suffix.lower()
                 if extensions is not None and extension not in extensions:
                     continue
+                relative = str(full.relative_to(self._root))
+                if path_prefix and not relative.startswith(path_prefix):
+                    continue
                 results.append(
                     DocumentInfo(
-                        path=str(full.relative_to(self._root)),
+                        path=relative,
                         size=full.stat().st_size,
                         extension=extension,
                     )
                 )
                 if max_files is not None and len(results) >= max_files:
-                    return results
-        return results
+                    return Listing(items=results, truncated=True)
+        return Listing(items=results, truncated=False)
 
     def total_size(self) -> int:
         """Total size of all documents currently in the corpus."""
-        return sum(info.size for info in self.list())
+        return sum(info.size for info in self.list().items)
 
     def write_atomic(
         self, relative_path: str, data: bytes, *, overwrite: bool = False
