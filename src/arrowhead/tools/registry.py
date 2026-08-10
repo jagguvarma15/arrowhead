@@ -21,5 +21,6 @@ def register_tools(mcp: FastMCP, *, enforce_scopes: bool = True) -> None:
         mcp.tool(
             spec.load(),
             annotations=dict(spec.annotations),
+            icons=list(spec.icons) or None,
             auth=scope_checks(spec.name) if enforce_scopes else None,
         )
