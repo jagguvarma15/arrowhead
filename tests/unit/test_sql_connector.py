@@ -169,6 +169,15 @@ async def test_column_names_are_sanitized(sql_db):
     assert "​" not in column
 
 
+def test_record_keys_disambiguate_collisions():
+    from arrowhead.connectors.sql import _record_keys
+
+    # Two columns that sanitize to the same name must not collapse into one
+    # record key; a repeat is suffixed with its column index so no column's
+    # values are silently dropped.
+    assert _record_keys(["a", "b", "a", "a"]) == ["a", "b", "a#2", "a#3"]
+
+
 async def test_the_dialect_is_derived_from_the_dsn():
     # A DSN-derived dialect keeps the guard from regenerating a query through a
     # generic dialect that would silently drop a dialect-specific clause.
