@@ -8,8 +8,6 @@ Markdown has HTML and exfiltration vectors removed; plain text has escapes
 and invisible characters stripped.
 """
 
-from datetime import UTC, datetime
-
 import anyio
 from fastmcp.exceptions import ToolError
 
@@ -52,5 +50,4 @@ async def doc_read(path: str) -> ProvenancedResult:
         content,
         source=path,
         content_format=content_format,
-        retrieved_at=datetime.now(UTC).isoformat(),
     )
