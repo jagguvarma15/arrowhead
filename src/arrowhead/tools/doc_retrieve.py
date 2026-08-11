@@ -9,7 +9,6 @@ wrapped in provenance so the caller treats it as untrusted data.
 """
 
 import json
-from datetime import UTC, datetime
 
 import httpx
 from fastmcp.exceptions import ToolError
@@ -53,7 +52,6 @@ async def doc_retrieve(url: str) -> ProvenancedResult:
         content,
         source=url,
         content_format=content_format,
-        retrieved_at=datetime.now(UTC).isoformat(),
     )
     wrapped["metadata"]["status"] = response["status"]
     return wrapped

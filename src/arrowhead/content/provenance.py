@@ -10,6 +10,7 @@ are random per call so returned content cannot forge the closing marker.
 
 import secrets
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TypedDict
 
 from arrowhead.content.text_safe import sanitize_text
@@ -69,14 +70,18 @@ def wrap_content(
     *,
     source: str,
     content_format: str,
-    retrieved_at: str,
+    retrieved_at: str | None = None,
     trust_level: str = "untrusted",
 ) -> dict:
-    """Wrap sanitized content with provenance and untrusted-data framing."""
+    """Wrap sanitized content with provenance and untrusted-data framing.
+
+    retrieved_at defaults to the current UTC time when the caller does not
+    supply one, so a caller with no more specific timestamp need not build it.
+    """
     return ProvenancedContent(
         content=content,
         source=source,
         content_format=content_format,
-        retrieved_at=retrieved_at,
+        retrieved_at=retrieved_at or datetime.now(UTC).isoformat(),
         trust_level=trust_level,
     ).to_dict()

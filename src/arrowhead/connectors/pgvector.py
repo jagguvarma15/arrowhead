@@ -13,10 +13,8 @@ server-side statement timeout are shared with the SQL connector, so a vector
 search runs under the same read-only, time-bounded guarantees as a SQL read.
 """
 
-import json
 import math
 import re
-from datetime import UTC, datetime
 
 import anyio
 from fastmcp.exceptions import ToolError
@@ -28,11 +26,14 @@ from arrowhead.connectors.sql import (
     _TIMEOUT_GRACE_SECONDS,
     SqlConnectorError,
     _collect,
+    _connector_errors,
     _dialect_from_dsn,
     _get_engine,
+    _import_sqlalchemy,
     _session_guards,
+    _wrap_rows,
 )
-from arrowhead.content.provenance import ProvenancedResult, wrap_content
+from arrowhead.content.provenance import ProvenancedResult
 
 # A schema-qualified SQL identifier: the only shape a table or column name may
 # take before it is interpolated into a query. Values still come from the
@@ -76,17 +77,7 @@ async def vector_search(
     except SqlConnectorError as exc:
         raise ToolError(str(exc)) from exc
 
-    payload = json.dumps(rows, ensure_ascii=False, sort_keys=True, default=str)
-    wrapped = wrap_content(
-        payload,
-        source=f"pgvector:{collection}",
-        content_format="json",
-        retrieved_at=datetime.now(UTC).isoformat(),
-    )
-    wrapped["metadata"]["columns"] = columns
-    wrapped["metadata"]["row_count"] = len(rows)
-    wrapped["metadata"]["truncated"] = truncated
-    return wrapped
+    return _wrap_rows(rows, columns, truncated, source=f"pgvector:{collection}")
 
 
 def _validate_collection(collection: str, settings) -> str:
@@ -134,13 +125,7 @@ def _safe_identifier(name: str) -> str:
 
 
 async def _search(collection, literal, k, tenant, settings):
-    try:
-        from sqlalchemy import text
-        from sqlalchemy.exc import SQLAlchemyError
-    except ImportError as exc:  # pragma: no cover - only without the extra
-        raise SqlConnectorError(
-            "the SQL connector requires the 'sql' extra: install arrowhead[sql]"
-        ) from exc
+    text = _import_sqlalchemy()
 
     # Every interpolated name is either allow-listed (the collection) or comes
     # from configuration, and each passes the strict identifier guard, so the
@@ -161,7 +146,7 @@ async def _search(collection, literal, k, tenant, settings):
     bind = {"q": literal, "tenant": tenant, "k": k}
 
     guards = _session_guards("postgres", settings)
-    try:
+    with _connector_errors():
         # The engine build is inside the wrapped block so a driver-load error
         # (which leaks the backend name) becomes a clean connector error.
         engine = _get_engine(settings.sql_dsn)
@@ -174,11 +159,3 @@ async def _search(collection, literal, k, tenant, settings):
                     # Reuse the SQL connector's row collector so the byte,
                     # row, column, and per-cell caps stay identical here.
                     return await _collect(result, settings)
-    except SqlConnectorError:
-        raise
-    except TimeoutError as exc:
-        raise SqlConnectorError("the query exceeded its time budget") from exc
-    except SQLAlchemyError as exc:
-        raise SqlConnectorError(f"query failed: {type(exc).__name__}") from exc
-    except Exception as exc:
-        raise SqlConnectorError(f"query failed: {type(exc).__name__}") from exc

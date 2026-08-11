@@ -16,6 +16,28 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+@lru_cache(maxsize=128)
+def _csv_frozenset(raw: str, lower: bool) -> frozenset[str]:
+    """A comma-separated setting parsed into a set, memoized by its raw value.
+
+    Building the set is cheap but happens on hot paths (every document call
+    reads the allowed-extension set), so caching by the raw string avoids
+    re-splitting it on each call. Keying on the value keeps this correct under
+    a use_settings override: a different settings block with the same string
+    reuses the set, a different string computes its own.
+    """
+    parts = (item.strip() for item in raw.split(","))
+    if lower:
+        return frozenset(item.lower() for item in parts if item)
+    return frozenset(item for item in parts if item)
+
+
+@lru_cache(maxsize=128)
+def _csv_int_frozenset(raw: str) -> frozenset[int]:
+    """A comma-separated integer setting parsed into a set, memoized by value."""
+    return frozenset(int(item.strip()) for item in raw.split(",") if item.strip())
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ARROWHEAD_",
@@ -235,28 +257,16 @@ class Settings(BaseSettings):
         }
 
     def doc_allowed_extension_set(self) -> frozenset[str]:
-        return frozenset(
-            ext.strip().lower()
-            for ext in self.doc_allowed_extensions.split(",")
-            if ext.strip()
-        )
+        return _csv_frozenset(self.doc_allowed_extensions, True)
 
     def egress_allowed_hosts_set(self) -> frozenset[str]:
         """Lowercased set of hosts the fetch tools may reach; empty allows any
         public host."""
-        return frozenset(
-            host.strip().lower()
-            for host in self.egress_allowed_hosts.split(",")
-            if host.strip()
-        )
+        return _csv_frozenset(self.egress_allowed_hosts, True)
 
     def pgvector_collection_set(self) -> frozenset[str]:
         """The vector collections a caller may search; empty allows none."""
-        return frozenset(
-            name.strip()
-            for name in self.pgvector_collections.split(",")
-            if name.strip()
-        )
+        return _csv_frozenset(self.pgvector_collections, False)
 
     @field_validator("egress_allowed_ports")
     @classmethod
@@ -308,11 +318,7 @@ class Settings(BaseSettings):
     def egress_allowed_ports_set(self) -> frozenset[int]:
         """Extra ports the fetch tools may reach beyond 80 and 443; empty
         allows only the two web ports."""
-        return frozenset(
-            int(port.strip())
-            for port in self.egress_allowed_ports.split(",")
-            if port.strip()
-        )
+        return _csv_int_frozenset(self.egress_allowed_ports)
 
 
 # An embedding host can supply its own settings for a block rather than

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from arrowhead.content.provenance import UNTRUSTED_NOTICE, wrap_content
 
 
@@ -46,3 +48,11 @@ def test_source_metadata_is_sanitized():
         retrieved_at="t",
     )
     assert wrapped["metadata"]["source"] == "http://x/evil"
+
+
+def test_wrap_content_defaults_the_timestamp():
+    # When the caller omits retrieved_at, a UTC ISO-8601 timestamp is stamped.
+    wrapped = wrap_content("payload", source="s", content_format="txt")
+    retrieved_at = wrapped["metadata"]["retrieved_at"]
+    assert retrieved_at.endswith("+00:00")
+    datetime.fromisoformat(retrieved_at)

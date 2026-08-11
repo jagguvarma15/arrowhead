@@ -27,8 +27,8 @@ the function denylist, the in-process deadline, and the read-only role.
 """
 
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 import anyio
 from fastmcp.exceptions import ToolError
@@ -323,17 +323,7 @@ async def sql_query(
     except SqlConnectorError as exc:
         raise ToolError(str(exc)) from exc
 
-    payload = json.dumps(rows, ensure_ascii=False, sort_keys=True, default=str)
-    wrapped = wrap_content(
-        payload,
-        source="sql",
-        content_format="json",
-        retrieved_at=datetime.now(UTC).isoformat(),
-    )
-    wrapped["metadata"]["columns"] = columns
-    wrapped["metadata"]["row_count"] = len(rows)
-    wrapped["metadata"]["truncated"] = truncated
-    return wrapped
+    return _wrap_rows(rows, columns, truncated, source="sql")
 
 
 def _validate_params(params: dict | None) -> dict:
@@ -351,15 +341,45 @@ def _validate_params(params: dict | None) -> dict:
     return bind
 
 
-async def _execute(guarded: GuardedQuery, bind: dict, settings, dialect):
+def _import_sqlalchemy():
+    """Return the SQLAlchemy text() constructor, or raise a clean error.
+
+    The import is lazy so the connector stays optional; a missing extra
+    surfaces as a SqlConnectorError rather than a raw ImportError.
+    """
     try:
         from sqlalchemy import text
-        from sqlalchemy.exc import SQLAlchemyError
     except ImportError as exc:  # pragma: no cover - only without the extra
         raise SqlConnectorError(_MISSING_SQL_EXTRA) from exc
+    return text
 
-    guards = _session_guards(dialect, settings)
+
+@contextmanager
+def _connector_errors():
+    """Translate a query's execution failures into clean SqlConnectorErrors.
+
+    A cap breached inside _collect is already a precise message and is re-raised
+    unchanged; a timeout becomes the time-budget message; every other error is
+    flattened to a generic failure that never leaks the driver or backend name.
+    A driver-level error the ORM did not wrap (for example an asyncpg statement
+    cancellation raised while streaming rows) is flattened the same way.
+    CancelledError derives from BaseException, so the in-process deadline is
+    unaffected.
+    """
     try:
+        yield
+    except SqlConnectorError:
+        raise
+    except TimeoutError as exc:
+        raise SqlConnectorError("the query exceeded its time budget") from exc
+    except Exception as exc:
+        raise SqlConnectorError(f"query failed: {type(exc).__name__}") from exc
+
+
+async def _execute(guarded: GuardedQuery, bind: dict, settings, dialect):
+    text = _import_sqlalchemy()
+    guards = _session_guards(dialect, settings)
+    with _connector_errors():
         # Building the engine can raise a driver-load error that leaks the
         # backend name, so it is inside the wrapped block and becomes a clean
         # connector error like every other failure here.
@@ -376,20 +396,25 @@ async def _execute(guarded: GuardedQuery, bind: dict, settings, dialect):
                         return await _collect(result, settings)
                 result = await conn.stream(text(guarded.sql), bind)
                 return await _collect(result, settings)
-    except SqlConnectorError:
-        # A cap breached inside _collect is already a precise message; keep it
-        # rather than flattening it into the generic failure below.
-        raise
-    except TimeoutError as exc:
-        raise SqlConnectorError("the query exceeded its time budget") from exc
-    except SQLAlchemyError as exc:
-        raise SqlConnectorError(f"query failed: {type(exc).__name__}") from exc
-    except Exception as exc:
-        # A driver-level error the ORM did not wrap (for example an asyncpg
-        # statement cancellation raised while streaming rows) still becomes a
-        # clean connector error rather than crashing the call. CancelledError
-        # derives from BaseException, so the in-process deadline is unaffected.
-        raise SqlConnectorError(f"query failed: {type(exc).__name__}") from exc
+
+
+def _record_keys(columns: list[str]) -> list[str]:
+    """The per-row record keys: the sanitized column names, disambiguated once.
+
+    Two columns that sanitize to the same name would otherwise collapse into
+    one, silently dropping a column's values, so a repeat is suffixed with its
+    column index. The keys are identical for every row, so computing them once
+    here keeps the row loop from re-sanitizing each column name on every row.
+    """
+    keys: list[str] = []
+    present: set[str] = set()
+    for index, name in enumerate(columns):
+        key = name
+        if key in present:
+            key = f"{key}#{index}"
+        present.add(key)
+        keys.append(key)
+    return keys
 
 
 async def _collect(result, settings):
@@ -413,15 +438,12 @@ async def _collect(result, settings):
         raise SqlConnectorError(
             f"result exceeds {settings.sql_max_columns} columns"
         )
+    keys = _record_keys(columns)
     async for row in result:
-        record: dict = {}
-        for column, value in row._mapping.items():
-            key = sanitize_text(str(column))
-            if key in record:
-                # Two columns that sanitize to the same name would otherwise
-                # collapse into one, silently dropping a column's values.
-                key = f"{key}#{len(record)}"
-            record[key] = _cell(value, max_bytes)
+        record = {
+            key: _cell(value, max_bytes)
+            for key, value in zip(keys, row._mapping.values(), strict=True)
+        }
         row_bytes = len(json.dumps(record, default=str).encode("utf-8"))
         if rows and total_bytes + row_bytes > max_bytes:
             truncated = True
@@ -433,6 +455,22 @@ async def _collect(result, settings):
             break
     await result.close()
     return rows, columns, truncated
+
+
+def _wrap_rows(
+    rows: list[dict], columns: list[str], truncated: bool, *, source: str
+) -> ProvenancedResult:
+    """Frame collected rows as a provenance-wrapped JSON result.
+
+    Shared by the SQL and pgvector connectors so both return the same shape
+    with the same metadata fields.
+    """
+    payload = json.dumps(rows, ensure_ascii=False, sort_keys=True, default=str)
+    wrapped = wrap_content(payload, source=source, content_format="json")
+    wrapped["metadata"]["columns"] = columns
+    wrapped["metadata"]["row_count"] = len(rows)
+    wrapped["metadata"]["truncated"] = truncated
+    return wrapped
 
 
 def _cell(value, max_len: int):
