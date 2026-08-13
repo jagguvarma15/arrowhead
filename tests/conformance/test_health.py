@@ -5,7 +5,8 @@ platform probe can check the instance without credentials.
 """
 
 import httpx
-from fastmcp import FastMCP
+from mcp.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
 from arrowhead import __version__
 from arrowhead.health import register_health_routes
@@ -17,10 +18,14 @@ async def asgi_client(app):
     )
 
 
-async def test_health_is_unauthenticated_and_reports_version(docs):
-    from arrowhead.server import create_server
+def open_app():
+    from arrowhead.app import Arrowhead
 
-    app = create_server().http_app(json_response=True, stateless_http=True)
+    return Arrowhead().http_app(json_response=True, stateless_http=True)
+
+
+async def test_health_is_unauthenticated_and_reports_version(docs):
+    app = open_app()
     async with app.router.lifespan_context(app):
         async with await asgi_client(app) as client:
             response = await client.get("/health")
@@ -38,9 +43,7 @@ async def test_health_reachable_with_auth_enabled_and_no_token(auth_client):
 
 
 async def test_ready_reports_checks(docs):
-    from arrowhead.server import create_server
-
-    app = create_server().http_app(json_response=True, stateless_http=True)
+    app = open_app()
     async with app.router.lifespan_context(app):
         async with await asgi_client(app) as client:
             response = await client.get("/ready")
@@ -67,9 +70,7 @@ async def test_lifespan_closes_rate_limit_backend(docs, monkeypatch):
     from arrowhead.config import get_settings
 
     get_settings.cache_clear()
-    from arrowhead.server import create_server
-
-    app = create_server().http_app(json_response=True, stateless_http=True)
+    app = open_app()
     async with app.router.lifespan_context(app):
         pass
     assert closed["value"] is True
@@ -80,9 +81,15 @@ async def test_ready_returns_503_when_a_dependency_is_down():
         async def backend_healthy(self):
             return False
 
-    mcp = FastMCP("ready-probe")
+    mcp = MCPServer("ready-probe")
     register_health_routes(mcp, UnhealthyLimiter())
-    app = mcp.http_app(json_response=True, stateless_http=True)
+    app = mcp.streamable_http_app(
+        json_response=True,
+        stateless_http=True,
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=False
+        ),
+    )
     async with app.router.lifespan_context(app):
         async with await asgi_client(app) as client:
             response = await client.get("/ready")
