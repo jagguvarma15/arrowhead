@@ -195,6 +195,7 @@ class Settings(BaseSettings):
     pgvector_source_column: str = "source"
     pgvector_chunk_index_column: str = "chunk_index"
     pgvector_content_hash_column: str = "content_hash"
+    pgvector_tsvector_column: str = "content_tsv"
     pgvector_max_k: int = 50
     pgvector_max_dimensions: int = 2000
 
