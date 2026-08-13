@@ -33,6 +33,11 @@ ACTION_FETCH = "fetch"
 # grant retrieval ingestion independently of document writes. It is absent from
 # the default grants, so ingestion is denied until a deployment allows it.
 ACTION_INGEST = "ingest"
+# Running code in the sandbox is its own verb, absent from the default grants,
+# so execution is denied until a deployment explicitly allows it, on top of
+# the exec_enabled flag. A wildcard action still covers it, so a broad grant
+# is a deliberate operator choice.
+ACTION_EXECUTE = "execute"
 
 # A grant prefix may contain this token, expanded to the requesting
 # subject before matching, so one rule can scope every caller to its own
