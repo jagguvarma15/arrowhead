@@ -2,79 +2,72 @@
 
 The catalog is the single source of each component's name or URI,
 implementation, scope, and annotations, so this module does not restate any
-of them: it walks the specs and wires each tool, resource, and prompt, then
-attaches the argument-completion handler.
+of them: it walks the specs and wires each tool, resource, and prompt behind
+its guard wrapper, then attaches the argument-completion handler.
 
-Scope checks are attached only when auth is enabled. Scopes are an
-authorization concept: with no authentication there is no token to check them
-against, so on stdio and on unauthenticated local HTTP the components are
-registered without checks and remain callable.
+Every registration goes through the guards, so a component cannot be
+reached, on any transport or in process, without the tracing span, the
+audit line, the kill switch, the rate limit, and the scope check. Scope
+checks fire only when auth is enabled: with no authentication there is no
+token to check them against.
 """
 
-from fastmcp import FastMCP
+from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
-from arrowhead.auth.scopes import checks_for_scope, scope_checks
+from arrowhead.runtime.guards import (
+    Guards,
+    guard_prompt,
+    guard_resource,
+    guard_tool,
+)
 from arrowhead.tools.catalog import PROMPT_SPECS, RESOURCE_SPECS, TOOL_SPECS
 
 
-def register_components(
-    mcp: FastMCP,
-    *,
-    enforce_scopes: bool = True,
-    rate_limiter=None,
-    disabled: frozenset[str] = frozenset(),
-) -> None:
+def register_components(mcp: MCPServer, *, guards: Guards) -> None:
     """Register every tool, resource, and prompt, and the completion handler."""
-    register_tools(mcp, enforce_scopes=enforce_scopes)
-    register_resources(mcp, enforce_scopes=enforce_scopes)
-    register_prompts(mcp, enforce_scopes=enforce_scopes)
-    register_completions(mcp, rate_limiter=rate_limiter, disabled=disabled)
+    register_tools(mcp, guards=guards)
+    register_resources(mcp, guards=guards)
+    register_prompts(mcp, guards=guards)
+    register_completions(mcp, guards=guards)
 
 
-def register_tools(mcp: FastMCP, *, enforce_scopes: bool = True) -> None:
+def register_tools(mcp: MCPServer, *, guards: Guards) -> None:
     for spec in TOOL_SPECS:
-        mcp.tool(
-            spec.load(),
-            annotations=dict(spec.annotations),
+        mcp.add_tool(
+            guard_tool(spec, guards),
+            name=spec.name,
+            annotations=ToolAnnotations(**spec.annotations),
             icons=list(spec.icons) or None,
-            auth=scope_checks(spec.name) if enforce_scopes else None,
         )
 
 
-def register_resources(mcp: FastMCP, *, enforce_scopes: bool = True) -> None:
+def register_resources(mcp: MCPServer, *, guards: Guards) -> None:
     for spec in RESOURCE_SPECS:
         mcp.resource(
             spec.uri,
             description=spec.description,
             mime_type=spec.mime_type,
             icons=list(spec.icons) or None,
-            auth=checks_for_scope(spec.scope) if enforce_scopes else None,
-        )(spec.load())
+        )(guard_resource(spec, guards))
 
 
-def register_prompts(mcp: FastMCP, *, enforce_scopes: bool = True) -> None:
+def register_prompts(mcp: MCPServer, *, guards: Guards) -> None:
     for spec in PROMPT_SPECS:
         mcp.prompt(
-            spec.load(),
             name=spec.name,
             description=spec.description,
             icons=list(spec.icons) or None,
-            auth=checks_for_scope(spec.scope) if enforce_scopes else None,
-        )
+        )(guard_prompt(spec, guards))
 
 
-def register_completions(
-    mcp: FastMCP,
-    *,
-    rate_limiter=None,
-    disabled: frozenset[str] = frozenset(),
-) -> None:
-    """Attach the guarded argument-completion handler to the low-level server.
+def register_completions(mcp: MCPServer, *, guards: Guards) -> None:
+    """Attach the guarded argument-completion handler.
 
-    The handler is wrapped so the completion path, which bypasses the
-    middleware chain, still passes the same per-caller rate limit, kill switch,
-    and audit line as a tool call.
+    The completion path degrades gracefully rather than raising, so the
+    handler carries its own kill-switch, rate-limit, and audit wiring
+    instead of the component guard chain.
     """
     from arrowhead.completions.handlers import guarded_completion
 
-    mcp._mcp_server.completion()(guarded_completion(rate_limiter, disabled))
+    mcp.completion()(guarded_completion(guards.rate_limiter, guards.disabled))
