@@ -5,7 +5,7 @@ token the resource server already verified, never from anything the
 caller can freely assert such as a header or a tool argument.
 """
 
-from fastmcp.server.dependencies import get_access_token
+from mcp.server.auth.middleware.auth_context import get_access_token
 
 ANONYMOUS = "anonymous"
 
