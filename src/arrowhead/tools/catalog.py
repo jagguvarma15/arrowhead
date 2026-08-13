@@ -63,7 +63,7 @@ class ResourceSpec:
     """A resource or resource template the server exposes, and its guards.
 
     uri: the resource URI, a template when it contains a {param} such as
-        "doc://{path*}".
+        "doc://{+path}".
     import_path: "module:attribute" locating the handler.
     scope: the OAuth scope a caller must hold to read the resource.
     rate_limit_attr: the Settings attribute holding its per-minute ceiling.
@@ -302,7 +302,7 @@ RESOURCE_SPECS: list[ResourceSpec] = [
         mime_type="application/json",
     ),
     ResourceSpec(
-        uri="doc://{path*}",
+        uri="doc://{+path}",
         import_path="arrowhead.resources.documents:read_document_resource",
         scope="docs:read",
         rate_limit_attr="resource_read_per_minute",
