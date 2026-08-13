@@ -336,6 +336,42 @@ TOOL_SPECS: list[ToolSpec] = [
         },
     ),
     ToolSpec(
+        name="code_explain",
+        import_path="arrowhead.tools.code_explain:code_explain",
+        scope="assist:run",
+        rate_limit_attr="code_explain_per_minute",
+        family="assist",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": True,
+        },
+    ),
+    ToolSpec(
+        name="summarize_diff",
+        import_path="arrowhead.tools.summarize_diff:summarize_diff",
+        scope="assist:run",
+        rate_limit_attr="summarize_diff_per_minute",
+        family="assist",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": True,
+        },
+    ),
+    ToolSpec(
+        name="rerank",
+        import_path="arrowhead.tools.rerank:rerank",
+        scope="assist:run",
+        rate_limit_attr="rerank_per_minute",
+        family="assist",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": True,
+        },
+    ),
+    ToolSpec(
         name="scan_corpus_async",
         import_path="arrowhead.connectors.tasks:scan_corpus_async",
         scope="docs:scan",
