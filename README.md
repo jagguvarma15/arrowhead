@@ -3,21 +3,53 @@
 **The fast, secure data plane for AI agents.** Arrowhead is a hardened
 [Model Context Protocol](https://modelcontextprotocol.io) server and an
 installable foundation for exposing infrastructure (a document corpus, SQL, a
-pgvector store) to AI agents safely. The safe path is the default path: OAuth
-2.1 authorization, per-resource authorization, SSRF and path-traversal defenses,
-content sanitization and provenance, per-caller rate limiting, structured audit
-logging, and token-efficient schemas apply to every component, and there is no
-unguarded path. It targets the 2026-07-28 MCP specification at the application
-level while running on the stable FastMCP line, which speaks the 2025-11-25
-wire, and exposes the full modern surface: tools with structured output,
-resources and resource templates, prompts, argument completions, and
-handle-based asynchronous tasks. [`docs/SECURITY.md`](docs/SECURITY.md) records
-exactly which 2026-07-28 changes are adopted now and which are deferred until a
-stable SDK speaks the new wire.
+pgvector store, a source tree, a model backend) to AI agents safely. The safe
+path is the default path: OAuth 2.1 authorization, per-resource authorization,
+SSRF and path-traversal defenses, content sanitization and provenance,
+per-caller rate limiting, structured audit logging, and token-efficient
+schemas apply to every component, and there is no unguarded path.
+
+It runs on the official [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
+(the `mcp` package, version 2), so one streamable-HTTP endpoint serves the
+sessionless 2026-07-28 protocol natively while still serving handshake-era
+clients that send the `initialize` lifecycle. The full modern surface is
+exposed: tools with structured output, resources and resource templates,
+prompts, argument completions, and handle-based asynchronous tasks.
 
 Security lives inside each tool, resource, and prompt rather than in a proxy in
 front of them, so the guarantees hold whether a call arrives over HTTP or the
 server is imported and called directly from Python.
+
+## The coding data plane
+
+Beyond the general-purpose tools, Arrowhead exposes a code-focused surface an
+agent host such as Claude Code or Cursor can adopt directly. A deployment picks
+a **profile** (`ARROWHEAD_PROFILE`) so a connection carries only the tool
+families it needs, keeping the per-connection context lean:
+
+| Family | Tools | What it does |
+|---|---|---|
+| `core` | `safe_fetch`, `calculate`, `read_file` | The general-purpose utilities |
+| `docs` | `doc_*`, corpus resource and prompts | The jailed document corpus |
+| `data` | `sql_query`, `vector_search`, `vector_query`, `hybrid_query`, `doc_index` | SQL reads and pgvector retrieval, including hybrid vector-plus-full-text fusion and diff-aware re-indexing |
+| `repo` | `code_search`, `code_read`, `symbol_map`, `dependency_graph` | Read-only intelligence over a jailed source tree |
+| `assist` | `code_explain`, `summarize_diff`, `rerank` | Model-backed helpers over a pluggable completion provider |
+| `exec` | `run_snippet`, `run_tests` | Sandboxed execution behind a resource-bounded runner (opt-in twice) |
+| `context` | `pack_context`, `workingset_get`, `workingset_update` | A token-budgeted, secret-scanned, provenance-stamped context bundle and the working sets that feed it |
+
+Profiles: `core` is the three utilities; `docs` adds the document, data, and
+task families; `coding` is the code-focused surface (`core`, `data`, `repo`,
+`assist`, `exec`, `context`); `full` (the default) is every family. A tool
+outside the active profile is never registered, so it costs no context and a
+call to it is unknown.
+
+Three capabilities go beyond what comparable coding servers offer, built on
+Arrowhead's security posture: the guarded **context packer** secret-scans and
+provenance-stamps every snippet before it leaves the server; **hybrid,
+code-aware retrieval** fuses vector similarity with Postgres full-text rank and
+re-embeds only changed chunks; and a **tool-integrity digest**
+(`arrowhead://integrity`) lets a client pin the tool surface it consented to
+and detect a later change.
 
 ## Why it looks the way it does
 
@@ -64,6 +96,24 @@ docker compose -f deploy/docker-compose.yml up
 This brings up the streamable HTTP endpoint on `http://localhost:8000/mcp`
 alongside a Redis instance for shared rate-limit state. Any MCP client that
 speaks streamable HTTP can connect.
+
+### As a packaged command
+
+The project builds a wheel whose console script runs the server, so once it is
+published a host can launch it with no checkout:
+
+```bash
+uvx arrowhead serve          # run over the configured transport
+uvx arrowhead list-tools     # print each tool and the scope it requires
+```
+
+### Choosing a surface
+
+Set `ARROWHEAD_PROFILE` to expose only the families a deployment needs. A
+coding host connects to the `coding` profile; a documentation service uses
+`docs`; the default `full` exposes everything. The `exec` family is gated a
+second time behind `ARROWHEAD_EXEC_ENABLED`, so sandboxed execution never
+appears until it is turned on and its `execute` action is granted.
 
 ## Tools
 
@@ -227,7 +277,7 @@ request.
 
 `deploy/` holds a multi-stage, non-root [`Dockerfile`](deploy/Dockerfile), a
 local [`docker-compose.yml`](deploy/docker-compose.yml), and blueprints for
-[Render](deploy/render.yaml) and [Fly.io](deploy/fly.toml). FastMCP does not
+[Render](deploy/render.yaml) and [Fly.io](deploy/fly.toml). The server does not
 terminate TLS itself; the hosting platform or a reverse proxy in front of the
 process must. Set the OAuth variables and enable auth before exposing the
 server anywhere public.
