@@ -11,7 +11,7 @@ wrapped in provenance so the caller treats it as untrusted data.
 import json
 
 import httpx
-from fastmcp.exceptions import ToolError
+from arrowhead.errors import ToolError
 
 from arrowhead.authz.enforce import authorize_action
 from arrowhead.authz.policy import ACTION_FETCH, KIND_URL, Resource

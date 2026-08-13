@@ -21,7 +21,7 @@ import math
 import re
 
 import anyio
-from fastmcp.exceptions import ToolError
+from arrowhead.errors import ToolError
 
 from arrowhead.authz.enforce import authorize_action
 from arrowhead.authz.policy import ACTION_QUERY, KIND_TABLE, Resource

@@ -12,7 +12,7 @@ import time
 from typing import TypedDict
 
 import anyio
-from fastmcp.exceptions import ToolError
+from arrowhead.errors import ToolError
 
 from arrowhead.authz.enforce import authorize_action, get_authorizer
 from arrowhead.authz.policy import ACTION_SCAN, KIND_DOCUMENT, KIND_PREFIX, Resource

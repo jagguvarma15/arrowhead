@@ -18,7 +18,7 @@ from typing import TypedDict
 from urllib.parse import urljoin
 
 import httpx
-from fastmcp.exceptions import ToolError
+from arrowhead.errors import ToolError
 
 from arrowhead.authz.enforce import authorize_action
 from arrowhead.authz.policy import ACTION_FETCH, KIND_URL, Resource

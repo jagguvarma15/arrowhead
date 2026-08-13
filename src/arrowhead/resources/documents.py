@@ -15,7 +15,7 @@ a model.
 import json
 
 import anyio
-from fastmcp.exceptions import ToolError
+from arrowhead.errors import ToolError
 
 from arrowhead.authz.enforce import authorize_action, get_authorizer
 from arrowhead.authz.policy import (

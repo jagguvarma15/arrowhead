@@ -15,7 +15,7 @@ to a sub-path of the jail rather than the whole of it.
 from pathlib import Path
 
 import anyio
-from fastmcp.exceptions import ToolError
+from arrowhead.errors import ToolError
 
 from arrowhead.authz.enforce import authorize_action
 from arrowhead.authz.policy import ACTION_READ, KIND_FILE, Resource

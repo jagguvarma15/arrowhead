@@ -9,7 +9,7 @@ and invisible characters stripped.
 """
 
 import anyio
-from fastmcp.exceptions import ToolError
+from arrowhead.errors import ToolError
 
 from arrowhead.authz.enforce import authorize_action
 from arrowhead.authz.policy import ACTION_READ, KIND_DOCUMENT, Resource

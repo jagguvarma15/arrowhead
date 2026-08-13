@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import TypedDict
 
 import anyio
-from fastmcp.exceptions import ToolError
+from arrowhead.errors import ToolError
 
 from arrowhead.auth.identity import caller_identity
 from arrowhead.authz.enforce import authorize_action

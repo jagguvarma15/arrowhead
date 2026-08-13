@@ -6,7 +6,7 @@ and basic operators. An injection payload has to beat both, and each layer
 is tested on its own.
 """
 
-from fastmcp.exceptions import ToolError
+from arrowhead.errors import ToolError
 
 from arrowhead.config import get_settings
 from arrowhead.security.input_validation import (
