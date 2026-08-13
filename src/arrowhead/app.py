@@ -76,11 +76,21 @@ class Arrowhead:
     ) -> CallToolResult:
         """Call a tool through the full hardened path and return its result.
 
-        A tool that refuses or fails raises ToolError, exactly as it does over
-        the wire.
+        A tool that refuses or fails raises ToolError carrying the same
+        deliberate message a wire caller receives.
         """
+        from mcp.server.mcpserver.exceptions import ToolError as SDKToolError
+
         with self._activate():
-            result = await self.server.call_tool(name, arguments or {})
+            try:
+                result = await self.server.call_tool(name, arguments or {})
+            except SDKToolError as exc:
+                # The SDK prefixes the refusal text with the tool name;
+                # strip it so the raised message is the guard's own words.
+                message = str(exc).removeprefix(
+                    f"Error executing tool {name}: "
+                )
+                raise ToolError(message) from exc
         if getattr(result, "is_error", False):
             raise ToolError(_error_text(result))
         return result
