@@ -43,20 +43,6 @@ def docs(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def stdio_transport():
-    """Mark the current context as stdio so scoped tools are visible.
-
-    In-memory test clients have no transport; FastMCP then enforces
-    component auth and hides every scoped tool from an anonymous caller.
-    """
-    from fastmcp.server.context import _current_transport
-
-    token = _current_transport.set("stdio")
-    yield
-    _current_transport.reset(token)
-
-
-@pytest.fixture
 def make_resolver():
     """Factory for getaddrinfo stand-ins returning fixed addresses."""
 
@@ -126,7 +112,9 @@ def auth_client(keypair, monkeypatch):
 
     @asynccontextmanager
     async def open_client():
-        app = create_server().http_app(json_response=True, stateless_http=True)
+        app = create_server().streamable_http_app(
+            json_response=True, stateless_http=True
+        )
         async with app.router.lifespan_context(app):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
