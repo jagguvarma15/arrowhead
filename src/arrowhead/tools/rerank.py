@@ -100,7 +100,7 @@ def _parse_order(answer: str, count: int) -> list[int]:
     valid permutation prefix regardless of what the model said.
     """
     order: list[int] = []
-    for token in re.findall(r"\d+", answer):
+    for token in re.findall(r"(?<![\d-])\d+", answer):
         index = int(token)
         if 0 <= index < count and index not in order:
             order.append(index)
