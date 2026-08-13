@@ -1,9 +1,11 @@
 import fakeredis.aioredis
-from fastmcp import Client, FastMCP
+from mcp import Client
+from mcp.server import MCPServer
 
+from arrowhead.runtime.guards import Guards, guard_tool
 from arrowhead.security.rate_limit import (
     InMemoryTokenBucketStore,
-    RateLimitMiddleware,
+    RateLimiter,
     RedisTokenBucketStore,
 )
 
@@ -76,7 +78,7 @@ class TestRedisStore:
         await store.aclose()
 
 
-class TestMiddlewareLifecycle:
+class TestLimiterLifecycle:
     class RecordingStore:
         def __init__(self):
             self.closed = False
@@ -92,9 +94,9 @@ class TestMiddlewareLifecycle:
 
     async def test_backend_healthy_and_aclose_delegate(self):
         store = self.RecordingStore()
-        middleware = RateLimitMiddleware(store, {})
-        assert await middleware.backend_healthy() is True
-        await middleware.aclose()
+        limiter = RateLimiter(store, {})
+        assert await limiter.backend_healthy() is True
+        await limiter.aclose()
         assert store.closed is True
 
     async def test_in_memory_backend_is_healthy_and_closes_cleanly(self):
@@ -104,39 +106,51 @@ class TestMiddlewareLifecycle:
 
     async def test_explicit_zero_blocks_but_an_absent_component_falls_through(self):
         store = InMemoryTokenBucketStore(clock=Clock())
-        middleware = RateLimitMiddleware(
-            store, {"blocked": 0}, default_per_minute=0
-        )
+        limiter = RateLimiter(store, {"blocked": 0}, default_per_minute=0)
         # an explicit ceiling of 0 means no calls
-        assert await middleware.allow("blocked") is False
+        assert await limiter.allow("blocked") is False
         # a component with no ceiling and no default is unlimited, not blocked
-        assert await middleware.allow("absent") is True
+        assert await limiter.allow("absent") is True
 
     async def test_allow_consumes_a_configured_ceiling(self):
         store = InMemoryTokenBucketStore(clock=Clock())
-        middleware = RateLimitMiddleware(store, {"c": 1})
-        assert await middleware.allow("c") is True
-        assert await middleware.allow("c") is False
+        limiter = RateLimiter(store, {"c": 1})
+        assert await limiter.allow("c") is True
+        assert await limiter.allow("c") is False
 
 
-def limited_server(limit: int) -> FastMCP:
-    mcp = FastMCP(
-        "limited",
-        middleware=[
-            RateLimitMiddleware(
-                InMemoryTokenBucketStore(clock=Clock()), {"echo": limit}
-            )
-        ],
+def _spec(name, fn):
+    class Spec:
+        scope = "tools:read"
+
+        def load(self):
+            return fn
+
+    spec = Spec()
+    spec.name = name
+    return spec
+
+
+def _register(mcp: MCPServer, guards: Guards, name: str) -> None:
+    def tool(text: str) -> str:
+        return text
+
+    tool.__name__ = name
+    mcp.add_tool(guard_tool(_spec(name, tool), guards), name=name)
+
+
+def limited_server(limit: int, *, default: int = 0) -> MCPServer:
+    limiter = RateLimiter(
+        InMemoryTokenBucketStore(clock=Clock()),
+        {"echo": limit},
+        default_per_minute=default,
     )
-
-    @mcp.tool
-    def echo(text: str) -> str:
-        return text
-
-    @mcp.tool
-    def unlimited(text: str) -> str:
-        return text
-
+    guards = Guards(
+        enforce_scopes=False, rate_limiter=limiter, disabled=frozenset()
+    )
+    mcp = MCPServer("limited")
+    _register(mcp, guards, "echo")
+    _register(mcp, guards, "unlimited")
     return mcp
 
 
@@ -146,9 +160,7 @@ async def test_exceeding_the_limit_is_a_clean_error_not_a_crash():
             result = await client.call_tool("echo", {"text": "hi"})
             assert result.content[0].text == "hi"
 
-        result = await client.call_tool(
-            "echo", {"text": "hi"}, raise_on_error=False
-        )
+        result = await client.call_tool("echo", {"text": "hi"})
         assert result.is_error
         assert "rate limit exceeded for echo" in result.content[0].text
 
@@ -158,27 +170,21 @@ async def test_exceeding_the_limit_is_a_clean_error_not_a_crash():
 
 
 async def test_unlisted_tool_falls_back_to_default_ceiling():
-    mcp = FastMCP(
-        "defaulted",
-        middleware=[
-            RateLimitMiddleware(
-                InMemoryTokenBucketStore(clock=Clock()),
-                {"echo": 5},
-                default_per_minute=1,
-            )
-        ],
+    limiter = RateLimiter(
+        InMemoryTokenBucketStore(clock=Clock()),
+        {"echo": 5},
+        default_per_minute=1,
     )
-
-    @mcp.tool
-    def only(text: str) -> str:
-        return text
+    guards = Guards(
+        enforce_scopes=False, rate_limiter=limiter, disabled=frozenset()
+    )
+    mcp = MCPServer("defaulted")
+    _register(mcp, guards, "only")
 
     async with Client(mcp) as client:
         first = await client.call_tool("only", {"text": "a"})
         assert first.content[0].text == "a"
-        second = await client.call_tool(
-            "only", {"text": "b"}, raise_on_error=False
-        )
+        second = await client.call_tool("only", {"text": "b"})
         assert second.is_error
         assert "rate limit exceeded for only" in second.content[0].text
 
@@ -197,9 +203,7 @@ async def test_callers_get_separate_buckets(monkeypatch):
         assert second.content[0].text == "b"
 
 
-async def test_spamming_calculate_on_the_real_server(
-    monkeypatch, stdio_transport
-):
+async def test_spamming_calculate_on_the_real_server(monkeypatch):
     monkeypatch.setenv("ARROWHEAD_CALCULATE_PER_MINUTE", "3")
     from arrowhead.config import get_settings
 
@@ -211,9 +215,7 @@ async def test_spamming_calculate_on_the_real_server(
             result = await client.call_tool(
                 "calculate", {"expression": "1 + 1"}
             )
-            assert result.data == 2.0
-        result = await client.call_tool(
-            "calculate", {"expression": "1 + 1"}, raise_on_error=False
-        )
+            assert result.structured_content == {"result": 2.0}
+        result = await client.call_tool("calculate", {"expression": "1 + 1"})
         assert result.is_error
         assert "rate limit" in result.content[0].text
