@@ -267,6 +267,49 @@ class Settings(BaseSettings):
     hybrid_candidate_multiplier: int = 4
     fts_language: str = "english"
 
+    # Completion backend for the assist tools. "none" (the default) keeps
+    # them refusing with a clear message; "anthropic" posts to the
+    # Anthropic Messages API; "openai" posts to any OpenAI-compatible
+    # chat-completions URL, which covers Ollama, vLLM, LM Studio, and most
+    # cloud deployments. The endpoint is the full URL; the key is supplied
+    # out of band and never appears in an error. A local endpoint must be
+    # named in llm_internal_hosts (exact host:port pairs) to be reachable,
+    # a deliberate exemption that only configuration-addressed clients use.
+    llm_provider: Literal["none", "anthropic", "openai"] = "none"
+    llm_endpoint: str = ""
+    llm_model: str = ""
+    llm_api_key: str = ""
+    llm_max_tokens: int = 1024
+    llm_timeout_seconds: float = 60.0
+    llm_max_prompt_chars: int = 32_000
+    llm_internal_hosts: str = ""
+    # summarize_diff accepts a caller-supplied unified diff up to this size.
+    diff_max_bytes: int = 200_000
+
+    def llm_internal_host_set(self) -> frozenset[str]:
+        return _csv_frozenset(self.llm_internal_hosts, True)
+
+    @field_validator("llm_internal_hosts")
+    @classmethod
+    def _validate_llm_internal_hosts(cls, value: str) -> str:
+        """Each entry must be an exact host:port pair, so the exemption can
+        never be broader than one named endpoint."""
+        for entry in value.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            host, separator, port = entry.rpartition(":")
+            if not separator or not host or not port.isdigit():
+                raise ValueError(
+                    "llm_internal_hosts entries must be host:port pairs "
+                    f"(got {entry!r})"
+                )
+            if not 1 <= int(port) <= 65535:
+                raise ValueError(
+                    f"llm_internal_hosts has an out-of-range port: {port}"
+                )
+        return value
+
     # abuse controls. Ceilings are calls per caller per minute; network-
     # bound safe_fetch gets a low ceiling, cheap calculate a high one.
     # With ARROWHEAD_REDIS_URL set, buckets live in Redis and the limits
@@ -282,6 +325,9 @@ class Settings(BaseSettings):
     code_read_per_minute: int = 60
     symbol_map_per_minute: int = 20
     dependency_graph_per_minute: int = 10
+    code_explain_per_minute: int = 10
+    summarize_diff_per_minute: int = 10
+    rerank_per_minute: int = 20
     doc_retrieve_per_minute: int = 30
     doc_scan_per_minute: int = 20
     doc_write_per_minute: int = 30
