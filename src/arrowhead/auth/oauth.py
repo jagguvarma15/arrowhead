@@ -19,9 +19,8 @@ configuration sugar over the jwt path, and the token audience defaults to
 this server's public URL as AuthKit mints it.
 """
 
-from pydantic import AnyHttpUrl
-
 from mcp.server.auth.settings import AuthSettings
+from pydantic import AnyHttpUrl
 
 from arrowhead.auth.verifier import JWKSTokenVerifier
 from arrowhead.config import Settings
