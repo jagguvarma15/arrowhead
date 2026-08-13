@@ -38,6 +38,13 @@ postgres = [
     "asyncpg>=0.30.0",
     "pgvector>=0.3.6",
 ]
+# Exact symbol extraction for non-Python languages in symbol_map. Optional:
+# without it Python uses the stdlib parser and other languages fall back to
+# a line heuristic, so the base install carries no native parser.
+treesitter = [
+    "tree-sitter>=0.23",
+    "tree-sitter-language-pack>=0.7",
+]
 
 [build-system]
 requires = ["uv_build>=0.11.2,<0.12.0"]
