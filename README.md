@@ -119,9 +119,26 @@ to run until a DSN is configured.
 |---|---|---|
 | `sql_query(query, params)` | `sql:read` | Runs a single vetted read-only statement. The query is parsed in the database's own dialect, every referenced table (or a sentinel for a tableless query) is authorized, and it runs in a read-only transaction under a server-side statement timeout. Bind values with named parameters |
 | `vector_search(collection, embedding, k)` | `vector:search` | A bounded pgvector nearest-neighbour search over an allow-listed collection. The tenant filter is the authenticated caller, never an argument, so one tenant cannot read another's rows |
+| `vector_query(collection, query, k)` | `vector:search` | The text-facing retrieval tool: it embeds the query server-side through the configured provider and returns the nearest chunks, each carrying its source document and chunk index as a citation |
+| `doc_index(collection, path_prefix)` | `vector:write` | Chunks, embeds, and writes corpus documents into a collection under the caller's tenant so vector_query can retrieve them. It uses a write credential separate from the read-only DSN, and a re-index replaces a document's existing chunks |
 
 A read-only database role is the recommended credential; the read-only
 transaction and statement timeout are defense in depth behind the parser.
+
+### Retrieval (RAG)
+
+Together, `doc_index` and `vector_query` close the retrieval loop over the jailed
+corpus. Point `doc_index` at a path prefix and it chunks each authorized
+document, embeds the chunks through the configured provider, and writes them
+under the caller's tenant; `vector_query` then embeds a natural-language query
+server-side and returns the nearest chunks with their source and position as
+citations. Embeddings come from a pluggable provider: a stdlib deterministic
+embedder (offline, for tests and development) by default, or an OpenAI-compatible
+HTTP endpoint reached through the SSRF guard and the egress allowlist. Apply
+[`deploy/pgvector_schema.sql`](deploy/pgvector_schema.sql) once, set
+`ARROWHEAD_VECTOR_WRITE_DSN` to a least-privilege write role, and grant the
+caller the `ingest` action (denied by default). See
+[`examples/docs_rag/`](examples/docs_rag/) for a runnable walkthrough.
 
 ## Resources, prompts, and completions
 
@@ -178,6 +195,8 @@ essentials:
 | `ARROWHEAD_AUTHZ_POLICY` | Per-resource authorization grants (JSON) | safe default |
 | `ARROWHEAD_SQL_DSN` | SQLAlchemy async URL for the SQL and pgvector connectors | - |
 | `ARROWHEAD_PGVECTOR_COLLECTIONS` | Allow-listed pgvector collections to search | - |
+| `ARROWHEAD_VECTOR_WRITE_DSN` | Write credential for `doc_index`, separate from the read-only DSN | - |
+| `ARROWHEAD_EMBEDDING_PROVIDER` | `deterministic` (offline) or `http` (OpenAI-compatible endpoint) | `deterministic` |
 | `ARROWHEAD_EGRESS_ALLOWED_HOSTS` / `_PORTS` | Outbound host and extra-port allowlists | - |
 | `ARROWHEAD_REDIS_URL` | Shared rate-limit store across replicas | - |
 | `ARROWHEAD_DISABLED_TOOLS` | Kill switch: comma-separated component names | - |
