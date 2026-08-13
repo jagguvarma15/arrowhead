@@ -13,7 +13,11 @@ _SCHEMA = [
     "DROP TABLE IF EXISTS doc_chunks",
     "CREATE TABLE doc_chunks (id text PRIMARY KEY, tenant text NOT NULL, "
     "source text NOT NULL, chunk_index int NOT NULL, content text NOT NULL, "
-    "embedding vector(8) NOT NULL, UNIQUE (tenant, source, chunk_index))",
+    "embedding vector(8) NOT NULL, "
+    "content_hash text NOT NULL DEFAULT '', "
+    "content_tsv tsvector GENERATED ALWAYS AS "
+    "(to_tsvector('english', content)) STORED, "
+    "UNIQUE (tenant, source, chunk_index))",
 ]
 
 
@@ -48,6 +52,60 @@ async def test_index_then_query_returns_cited_chunks(
         assert "source" in result["metadata"]["columns"]
         assert "chunk_index" in result["metadata"]["columns"]
         assert "handbook.md" in result["content"]
+    finally:
+        await dispose_engines()
+
+
+async def test_reindex_reuses_unchanged_chunks(
+    postgres_url, run_ddl, tmp_path, monkeypatch
+):
+    """A second index of an unedited corpus embeds nothing and rewrites
+    nothing; an edit re-embeds only the changed document's chunks."""
+    await run_ddl(_SCHEMA)
+    (tmp_path / "stable.md").write_text("The refund window is five days.")
+    (tmp_path / "edited.md").write_text("Shipping is free over fifty.")
+    _configure(monkeypatch, tmp_path, postgres_url)
+
+    from arrowhead.connectors import pgvector_index
+    from arrowhead.connectors.pgvector_index import doc_index
+    from arrowhead.connectors.sql import dispose_engines
+
+    embed_batches: list[int] = []
+    real_build = pgvector_index.build_embedding_provider
+
+    def counting_build(settings):
+        provider = real_build(settings)
+
+        class Counting:
+            dimensions = provider.dimensions
+
+            async def embed(self, texts):
+                embed_batches.append(len(texts))
+                return await provider.embed(texts)
+
+        return Counting()
+
+    monkeypatch.setattr(
+        pgvector_index, "build_embedding_provider", counting_build
+    )
+
+    try:
+        first = await doc_index("doc_chunks")
+        assert first["chunks_written"] == 2
+        assert first["chunks_reused"] == 0
+        assert embed_batches == [2]
+
+        second = await doc_index("doc_chunks")
+        assert second["chunks_written"] == 0
+        assert second["chunks_reused"] == 2
+        # No embedding call happened for the unchanged corpus.
+        assert embed_batches == [2]
+
+        (tmp_path / "edited.md").write_text("Shipping is free over sixty.")
+        third = await doc_index("doc_chunks")
+        assert third["chunks_written"] == 1
+        assert third["chunks_reused"] == 1
+        assert embed_batches == [2, 1]
     finally:
         await dispose_engines()
 
