@@ -18,6 +18,11 @@
   ],
   "resources": [
     {
+      "description": "A pinned digest of the enabled tool surface, so a client can detect tool-definition changes between sessions.",
+      "mime_type": "application/json",
+      "uri": "arrowhead://integrity"
+    },
+    {
       "description": "The corpus documents the caller is authorized to read.",
       "mime_type": "application/json",
       "uri": "docs://index"
