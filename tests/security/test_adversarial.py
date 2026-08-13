@@ -7,8 +7,8 @@ tool error rather than a crash, hang, or leak.
 
 import httpx
 import pytest
-from fastmcp.exceptions import ToolError
 
+from arrowhead.errors import ToolError
 from arrowhead.tools.calculate import calculate
 from arrowhead.tools.read_file import read_file
 from arrowhead.tools.safe_fetch import safe_fetch
