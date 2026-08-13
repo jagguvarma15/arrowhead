@@ -94,7 +94,14 @@ def _build_workos(settings: Settings, http_client):
 
 
 def _auth_settings(issuer: str, settings: Settings) -> AuthSettings:
+    # The resource identifier is the MCP endpoint itself, so RFC 9728
+    # metadata is served at /.well-known/oauth-protected-resource/mcp and
+    # the 401 challenge points exactly there. The metadata deliberately
+    # advertises no scope list: scopes are discovered through the filtered
+    # tool listing a caller is entitled to, never through an
+    # unauthenticated probe.
+    base = settings.server_public_url.rstrip("/")
     return AuthSettings(
         issuer_url=AnyHttpUrl(issuer),
-        resource_server_url=AnyHttpUrl(settings.server_public_url),
+        resource_server_url=AnyHttpUrl(f"{base}/mcp"),
     )
