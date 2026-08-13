@@ -1,7 +1,7 @@
 import pytest
-from fastmcp.exceptions import ToolError
 
 from arrowhead.config import get_settings
+from arrowhead.errors import ToolError
 
 POSTGRES = "postgresql+asyncpg://u@h/db"
 
