@@ -53,7 +53,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Index corpus documents into a pgvector collection so vector_query can\nretrieve them. Each document under the path prefix is chunked, embedded, and\nwritten under the caller's tenant; a re-index replaces a document's existing\nchunks. Example: doc_index(collection=\"doc_chunks\", path_prefix=\"handbook/\").",
+      "description": "Index corpus documents into a pgvector collection so vector_query can\nretrieve them. Each document under the path prefix is chunked, embedded, and\nwritten under the caller's tenant; a re-index replaces a document's existing\nchunks and skips unchanged ones without re-embedding them.\nExample: doc_index(collection=\"doc_chunks\", path_prefix=\"handbook/\").",
       "has_output_schema": true,
       "input_properties": [
         "collection",
