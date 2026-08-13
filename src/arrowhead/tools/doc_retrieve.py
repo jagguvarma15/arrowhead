@@ -11,7 +11,6 @@ wrapped in provenance so the caller treats it as untrusted data.
 import json
 
 import httpx
-from arrowhead.errors import ToolError
 
 from arrowhead.authz.enforce import authorize_action
 from arrowhead.authz.policy import ACTION_FETCH, KIND_URL, Resource
@@ -20,6 +19,7 @@ from arrowhead.content.json_safe import JSONSafetyError, parse_json
 from arrowhead.content.markdown_safe import sanitize_markdown
 from arrowhead.content.provenance import ProvenancedResult, wrap_content
 from arrowhead.content.text_safe import sanitize_text
+from arrowhead.errors import ToolError
 from arrowhead.security.input_validation import ValidationError, validate_url
 from arrowhead.security.ssrf_guard import BlockedURLError
 from arrowhead.tools.safe_fetch import FetchTooLargeError, fetch_url
