@@ -45,12 +45,12 @@ async def dependency_graph(path_prefix: str = "") -> DependencyGraphResult:
         except ValidationError as exc:
             raise ToolError(str(exc)) from exc
 
-    authorize_action(
+    subject = authorize_action(
         ACTION_SEARCH, Resource(kind=KIND_REPO_PREFIX, identifier=path_prefix)
     )
 
     edges, truncated = await anyio.to_thread.run_sync(
-        _run_graph, path_prefix, settings
+        _run_graph, path_prefix, subject, settings
     )
     return {
         "notice": UNTRUSTED_NOTICE,
@@ -60,12 +60,23 @@ async def dependency_graph(path_prefix: str = "") -> DependencyGraphResult:
     }
 
 
-def _run_graph(path_prefix, settings):
+def _run_graph(path_prefix, subject, settings):
+    from arrowhead.authz.enforce import get_authorizer
+    from arrowhead.authz.policy import ACTION_READ, KIND_REPO_FILE
+
     store = build_repo_store(settings)
+    authorizer = get_authorizer()
+
+    def allow(path: str) -> bool:
+        return authorizer.authorize(
+            subject, ACTION_READ, Resource(kind=KIND_REPO_FILE, identifier=path)
+        ).allowed
+
     edges, truncated = build_dependency_graph(
         store,
         path_prefix=path_prefix,
         max_files=settings.dependency_graph_max_files,
+        allow=allow,
     )
     sanitized = [
         {
