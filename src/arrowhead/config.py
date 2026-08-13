@@ -194,6 +194,7 @@ class Settings(BaseSettings):
     # retrieved chunk carries its source document and position as a citation.
     pgvector_source_column: str = "source"
     pgvector_chunk_index_column: str = "chunk_index"
+    pgvector_content_hash_column: str = "content_hash"
     pgvector_max_k: int = 50
     pgvector_max_dimensions: int = 2000
 
