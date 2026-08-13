@@ -55,9 +55,18 @@ class Settings(BaseSettings):
 
     # Host/Origin allowlists defend against DNS rebinding of the local
     # endpoint. Comma-separated; set these to the public hostname when
-    # deploying behind a proxy. Empty leaves FastMCP's localhost defaults.
+    # deploying behind a proxy. Empty leaves the check off, matching the
+    # documented platform-proxy posture.
     allowed_hosts: str = ""
     allowed_origins: str = ""
+
+    # Which tool families this deployment exposes. Every connected model
+    # pays context for each listed tool, so a deployment serving one job
+    # should expose one profile, not everything: core is the three
+    # utility tools, docs adds the document suite with its data and task
+    # tools, coding is the code-focused surface, and full (the default)
+    # is every family the catalog declares.
+    profile: Literal["core", "docs", "coding", "full"] = "full"
 
     def allowed_hosts_list(self) -> list[str] | None:
         hosts = [h.strip() for h in self.allowed_hosts.split(",") if h.strip()]
