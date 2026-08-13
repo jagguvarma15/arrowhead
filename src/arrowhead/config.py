@@ -233,6 +233,20 @@ class Settings(BaseSettings):
     # full delete-and-insert on a schema without it.
     index_reuse_unchanged: bool = True
 
+    # Working sets and the context packer. A working set is a named,
+    # owner-scoped collection of pinned documents and repo files an agent
+    # curates across calls; the packer assembles a token-budgeted bundle
+    # from it plus retrieval, secret-scanned and provenance-stamped. The
+    # registry lives in process, the same single-instance limitation the
+    # task registry documents. Bounds keep one caller from growing state
+    # without limit.
+    workingset_max_sets: int = 100
+    workingset_max_items: int = 200
+    workingset_get_per_minute: int = 60
+    workingset_update_per_minute: int = 30
+    pack_max_tokens: int = 8000
+    pack_context_per_minute: int = 10
+
     # Repo intelligence. The code tools read a jailed repository tree,
     # separate from the document corpus: read-only by construction, with
     # version-control and dependency directories pruned from every walk,
