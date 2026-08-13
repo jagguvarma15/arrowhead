@@ -57,7 +57,7 @@ async def test_report_is_readable_over_the_wire():
     report = json.loads(result.contents[0].text)
     assert report["algorithm"] == "sha256"
     assert len(report["digest"]) == 64
-    assert report["tool_count"] == 16
+    assert report["tool_count"] == 20
     assert report["profile"] == "full"
     # The wire report matches a locally computed digest of the same surface.
     assert report["digest"] == catalog_digest(await enabled_tool_surface())
