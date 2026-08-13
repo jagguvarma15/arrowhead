@@ -1,13 +1,22 @@
 """Protocol correctness over the deployed transport.
 
 Exercises the streamable HTTP endpoint end to end, through auth, with
-raw JSON-RPC payloads: lifecycle, id echoing, error envelopes, and
-notification handling.
+raw JSON-RPC payloads. One endpoint serves both protocol eras: a
+handshake-era client runs the initialize lifecycle, and a current-protocol
+client sends bare requests carrying the reserved _meta envelope. Both
+legs are pinned here.
 """
 
 import pytest
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 
 HEADERS = {"Accept": "application/json, text/event-stream"}
+
+# The reserved keys a sessionless request carries in place of a handshake.
+MODERN_ENVELOPE = {
+    "io.modelcontextprotocol/protocolVersion": LATEST_MODERN_VERSION,
+    "io.modelcontextprotocol/clientCapabilities": {},
+}
 
 
 @pytest.fixture
@@ -22,15 +31,17 @@ def rpc(method, params=None, id=1):
     return message
 
 
-async def test_initialize_lifecycle(auth_client, bearer):
-    from mcp.types import LATEST_PROTOCOL_VERSION
+def modern(method, params, id=1):
+    return rpc(method, {**params, "_meta": MODERN_ENVELOPE}, id=id)
 
+
+async def test_initialize_lifecycle(auth_client, bearer):
     from arrowhead import __version__
 
     request = rpc(
         "initialize",
         {
-            "protocolVersion": LATEST_PROTOCOL_VERSION,
+            "protocolVersion": LATEST_MODERN_VERSION,
             "capabilities": {},
             "clientInfo": {"name": "conformance", "version": "0"},
         },
@@ -43,9 +54,11 @@ async def test_initialize_lifecycle(auth_client, bearer):
     assert body["jsonrpc"] == "2.0"
     assert body["id"] == 7
     result = body["result"]
-    # The server must negotiate its latest supported spec, not silently
-    # fall back to an older one.
-    assert result["protocolVersion"] == LATEST_PROTOCOL_VERSION
+    # The initialize lifecycle is the handshake era's; a client asking for
+    # the sessionless revision through it is negotiated down to the latest
+    # handshake version, and reaches the modern leg by sending bare
+    # requests instead.
+    assert result["protocolVersion"] == LATEST_HANDSHAKE_VERSION
     assert result["serverInfo"]["name"] == "arrowhead"
     # serverInfo carries the real package version, not a stale constant.
     assert result["serverInfo"]["version"] == __version__
@@ -154,7 +167,7 @@ async def test_stateless_requests_need_no_session_handshake(
     auth_client, bearer
 ):
     """Any replica can serve any request: a bare tools/call with no prior
-    initialize on this connection must succeed."""
+    initialize on this connection must succeed on the handshake leg."""
     async with auth_client() as client:
         response = await client.post(
             "/mcp",
@@ -167,3 +180,61 @@ async def test_stateless_requests_need_no_session_handshake(
         )
     assert response.status_code == 200
     assert response.json()["result"]["structuredContent"]["result"] == 5.0
+
+
+async def test_modern_leg_serves_bare_enveloped_requests(auth_client, bearer):
+    """A sessionless client sends no initialize at all: the reserved _meta
+    envelope names the revision and capabilities on every request."""
+    async with auth_client() as client:
+        response = await client.post(
+            "/mcp",
+            json=modern(
+                "tools/call",
+                {"name": "calculate", "arguments": {"expression": "2 + 3"}},
+                id="modern-1",
+            ),
+            headers=bearer,
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "modern-1"
+    assert body["result"]["structuredContent"]["result"] == 5.0
+
+
+async def test_modern_leg_requires_the_envelope(auth_client, bearer):
+    """Declaring the modern revision without the envelope is an invalid
+    request, not a silent downgrade."""
+    async with auth_client() as client:
+        response = await client.post(
+            "/mcp",
+            json=rpc(
+                "tools/call",
+                {"name": "calculate", "arguments": {"expression": "2 + 3"}},
+                id=14,
+            ),
+            headers={
+                **bearer,
+                "MCP-Protocol-Version": LATEST_MODERN_VERSION,
+            },
+        )
+    body = response.json()
+    assert body["error"]["code"] == -32602
+    assert "_meta" in body["error"]["message"]
+
+
+async def test_modern_listing_is_scope_filtered_like_the_legacy_leg(
+    auth_client, issue_token
+):
+    """Both eras see the same visibility rules: a caller holding only
+    tools:read lists only the unscoped utility tools."""
+    token = issue_token(scope="tools:read")
+    async with auth_client() as client:
+        response = await client.post(
+            "/mcp",
+            json=modern("tools/list", {}, id=15),
+            headers={**HEADERS, "Authorization": f"Bearer {token}"},
+        )
+    names = {
+        tool["name"] for tool in response.json()["result"]["tools"]
+    }
+    assert names == {"safe_fetch", "calculate", "read_file"}
