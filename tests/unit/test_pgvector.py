@@ -7,7 +7,6 @@ Postgres integration tests.
 """
 
 import pytest
-from fastmcp.exceptions import ToolError
 
 from arrowhead.config import Settings, use_settings
 from arrowhead.connectors.pgvector import (
@@ -17,6 +16,7 @@ from arrowhead.connectors.pgvector import (
     _validate_embedding,
     vector_search,
 )
+from arrowhead.errors import ToolError
 
 
 def _settings(**kw):
