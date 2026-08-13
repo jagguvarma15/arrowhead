@@ -268,28 +268,92 @@ target below).
 
 ## Transport security
 
-FastMCP does not terminate TLS. In any non-local deployment the hosting
+The server does not terminate TLS. In any non-local deployment the hosting
 platform or a reverse proxy must provide HTTPS. The HTTP endpoint also enforces
 `Host` and `Origin` allowlists (configurable) to defend against DNS rebinding
-of the endpoint itself.
+of the endpoint itself; with neither list set the check stays off, matching the
+documented platform-proxy posture where the perimeter rewrites `Host` freely.
 
 Serving HTTP with authentication disabled would expose every tool over the
 network with no scope or per-resource check, so the server refuses to start in
 that configuration unless a deployment sets `ARROWHEAD_ALLOW_INSECURE_HTTP` for
 a deliberate trusted-network test.
 
-## MCP specification target
+## MCP specification and the request path
 
-Arrowhead targets the 2026-07-28 MCP specification at the application level
-while running on the stable FastMCP line, which speaks the 2025-11-25 wire. The
-changes the server owns are adopted now: a valid `private` cache scope with
-`ttlMs` on every cacheable list and read result, a deterministic list order, an
-accurate `serverInfo` version, error-detail masking, and no dependence on the
-now-deprecated Roots, Sampling, or Logging features. The changes that are the
-SDK's to make (the stateless core, `server/discover`, Multi Round-Trip Requests,
-native `CacheableResult`, and the wire-level tasks extension) are deferred until
-a stable FastMCP release speaks 2026-07-28; the only release that does today is a
-pre-release the MCP maintainers label as not for critical workloads, which a
-secure data plane should not depend on. Elicitation (used for destructive-write
-confirmation) is already stateless in shape, keeping no session-bound state, so
-it maps onto the new Multi Round-Trip pattern without a redesign.
+Arrowhead runs on the official MCP Python SDK, version 2. One streamable-HTTP
+endpoint serves both protocol eras: a client sending the reserved `_meta`
+envelope reaches the sessionless 2026-07-28 leg, and a client sending the
+`initialize` lifecycle reaches the handshake-era leg, negotiated down to the
+latest handshake version. Cache hints, argument completion, and elicitation are
+all first-class SDK features, so the server carries no low-level API patches.
+
+Because the SDK returns a tool's exception message to the client, the masking
+boundary is Arrowhead's own: every tool, resource, and prompt is registered
+wrapped in a guard chain (`arrowhead.runtime.guards`) that reproduces the prior
+middleware order (tracing span, audit line, kill switch, rate limit, scope
+check) and, at its edge, re-raises a deliberate `ToolError` verbatim while
+replacing every other exception with a generic refusal. A driver string, a
+stack detail, or a database error therefore never reaches a client. Because the
+guard lives on the component, an import-and-call invocation runs the identical
+path as an HTTP request.
+
+### Authorization and token verification
+
+Bearer tokens are verified in-house (`arrowhead.auth.verifier`) with pyjwt:
+signature against the issuer's JWKS or a static key, issuer, expiry, and,
+critically, that the token's audience names this server, so a token minted for
+another service is refused. The `workos` provider is configuration sugar that
+derives the AuthKit issuer and JWKS URI. RFC 9728 protected-resource metadata is
+served at `/.well-known/oauth-protected-resource/mcp` and deliberately
+advertises no scope list: a caller discovers the scopes it is entitled to
+through the filtered tool listing, never through an unauthenticated probe, and a
+scoped call it cannot make reports the tool as unknown.
+
+### Trusted internal endpoints for a local model
+
+The completion providers (`code_explain`, `summarize_diff`, `rerank`) post
+through the same SSRF-guarded, redirect-refusing path as the embedding client.
+A local model server (Ollama, vLLM, LM Studio) sits at a loopback address the
+guard refuses by default, so reaching one requires naming its exact `host:port`
+pair in `ARROWHEAD_LLM_INTERNAL_HOSTS`. That exemption skips only the
+reachability refusals (egress allowlist, port allowlist, non-public address) for
+the named pair; the scheme check, the single DNS resolution, and the address
+pinning still apply, and only configuration-addressed clients pass it. The
+public fetch tools never accept the parameter, so the public SSRF posture is
+unchanged.
+
+### Sandboxed execution guarantees, and non-guarantees
+
+The `exec` family is off by default and, even when `ARROWHEAD_EXEC_ENABLED` is
+set, denied by the default authorization policy: a deployment opts in twice, by
+the flag and by granting the `execute` action. The default subprocess runner
+runs each command in a fresh process group with a scrubbed environment (no
+`ARROWHEAD_` configuration, no ambient secrets), bounds CPU, memory, wall time,
+output, and process count, executes an explicit argv rather than a shell, and
+secret-scans and redacts output before it leaves. What it does **not** do: it
+does not block network egress or filesystem reads beyond ordinary OS
+permissions. A deployment that needs those isolated uses the container runner
+(`ARROWHEAD_EXEC_RUNNER=container`), which adds `--network none`, a read-only
+root filesystem, and container-enforced resource caps, or an external sandbox.
+`RLIMIT_AS` is unreliable on macOS, so memory bounding is best effort there and
+dependable on Linux.
+
+### Context packing
+
+`pack_context` never returns content that bypasses the guards: every pinned
+working-set item is re-authorized at pack time (a grant can change after
+pinning), every snippet is secret-scanned and redacted before it is packed, and
+each is wrapped in per-snippet untrusted framing with a random marker the
+content cannot forge. The bundle is capped at the token budget, and an item that
+would exceed it is dropped with a truncation flag rather than blowing the
+budget.
+
+### Tool integrity
+
+The `arrowhead://integrity` resource returns a sha256 digest over the semantic
+surface of every enabled tool (name, description, input and output schema,
+annotations). A client records the digest at consent time and compares it each
+session, so a later change to what a tool advertises (a rug pull) is detectable.
+The digest legitimately differs between profiles and kill-switch states; a
+client pins the digest of the deployment it consented to.
