@@ -263,6 +263,18 @@ TOOL_SPECS: list[ToolSpec] = [
         },
     ),
     ToolSpec(
+        name="hybrid_query",
+        import_path="arrowhead.connectors.hybrid:hybrid_query",
+        scope="vector:search",
+        rate_limit_attr="hybrid_query_per_minute",
+        family="data",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
         name="doc_index",
         import_path="arrowhead.connectors.pgvector_index:doc_index",
         scope="vector:write",
