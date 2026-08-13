@@ -181,8 +181,37 @@ class Settings(BaseSettings):
     pgvector_id_column: str = "id"
     pgvector_content_column: str = "content"
     pgvector_embedding_column: str = "embedding"
+    # Provenance columns written by doc_index and returned by vector_query so a
+    # retrieved chunk carries its source document and position as a citation.
+    pgvector_source_column: str = "source"
+    pgvector_chunk_index_column: str = "chunk_index"
     pgvector_max_k: int = 50
     pgvector_max_dimensions: int = 2000
+
+    # Embeddings. doc_index and vector_query turn text into vectors through a
+    # pluggable provider. "deterministic" is a stdlib, offline, non-semantic
+    # provider for tests and local development; "http" posts to an
+    # OpenAI-compatible endpoint through the SSRF guard and the egress
+    # allowlist, with the key supplied out of band.
+    embedding_provider: Literal["deterministic", "http"] = "deterministic"
+    embedding_dimensions: int = 1536
+    embedding_endpoint: str = ""
+    embedding_model: str = ""
+    embedding_api_key: str = ""
+    embedding_batch_size: int = 64
+    embedding_timeout_seconds: float = 30.0
+    embedding_max_texts: int = 10000
+
+    # Vector ingestion (doc_index). Writing chunks needs a write-capable
+    # credential, kept separate from the read-only sql_dsn so the read tools
+    # keep least privilege; ingestion refuses to run until it is set. The caps
+    # bound how much one call may index.
+    vector_write_dsn: str = ""
+    vector_index_max_files: int = 500
+    vector_index_max_chunks: int = 5000
+    vector_index_chunk_max_chars: int = 1500
+    vector_index_chunk_overlap: int = 200
+    vector_index_timeout_seconds: float = 30.0
 
     # abuse controls. Ceilings are calls per caller per minute; network-
     # bound safe_fetch gets a low ceiling, cheap calculate a high one.
@@ -199,6 +228,8 @@ class Settings(BaseSettings):
     doc_write_per_minute: int = 30
     sql_query_per_minute: int = 60
     vector_search_per_minute: int = 30
+    vector_query_per_minute: int = 30
+    vector_index_per_minute: int = 6
     # Handle-based async tasks: starting one is expensive (a full background
     # scan), polling is cheap, cancelling is in between.
     task_start_per_minute: int = 10
