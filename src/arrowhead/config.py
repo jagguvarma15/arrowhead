@@ -221,6 +221,24 @@ class Settings(BaseSettings):
     vector_index_chunk_max_chars: int = 1500
     vector_index_chunk_overlap: int = 200
     vector_index_timeout_seconds: float = 30.0
+    # Code files chunk along their structure (a Python file splits at its
+    # top-level definitions) with a wider window than prose, so a function
+    # is less likely to be cut mid-body.
+    code_chunk_max_chars: int = 2000
+    # A re-index skips chunks whose content hash is unchanged, so only
+    # edited chunks are re-embedded and rewritten. Requires the
+    # content_hash column from the schema file; set false to restore the
+    # full delete-and-insert on a schema without it.
+    index_reuse_unchanged: bool = True
+
+    # Hybrid retrieval (hybrid_query) fuses vector similarity with
+    # Postgres full-text rank via reciprocal rank fusion. The candidate
+    # multiplier sizes each branch's pool as a multiple of k; the text
+    # search configuration must name an installed Postgres regconfig and
+    # is always bound as a parameter, never interpolated.
+    hybrid_rrf_k: int = 60
+    hybrid_candidate_multiplier: int = 4
+    fts_language: str = "english"
 
     # abuse controls. Ceilings are calls per caller per minute; network-
     # bound safe_fetch gets a low ceiling, cheap calculate a high one.
@@ -232,6 +250,7 @@ class Settings(BaseSettings):
     read_file_per_minute: int = 60
     doc_search_per_minute: int = 60
     doc_read_per_minute: int = 60
+    hybrid_query_per_minute: int = 30
     doc_retrieve_per_minute: int = 30
     doc_scan_per_minute: int = 20
     doc_write_per_minute: int = 30
@@ -328,6 +347,25 @@ class Settings(BaseSettings):
                     f"egress_allowed_ports has an out-of-range port: {port}"
                 )
         return value
+
+    @field_validator("fts_language")
+    @classmethod
+    def _validate_fts_language(cls, value: str) -> str:
+        """Constrain the text-search configuration to a plain lowercase name.
+
+        The value is always bound as a query parameter, so this is defense
+        in depth against a config value shaped like SQL rather than a
+        Postgres regconfig name.
+        """
+        cleaned = value.strip()
+        if not cleaned or not all(
+            ch.isalpha() and ch.islower() or ch == "_" for ch in cleaned
+        ):
+            raise ValueError(
+                "fts_language must be a lowercase Postgres text search "
+                f"configuration name (got {value!r})"
+            )
+        return cleaned
 
     @field_validator("sql_dialect")
     @classmethod
