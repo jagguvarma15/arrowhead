@@ -318,6 +318,18 @@ TOOL_SPECS: list[ToolSpec] = [
 
 RESOURCE_SPECS: list[ResourceSpec] = [
     ResourceSpec(
+        uri="arrowhead://integrity",
+        import_path="arrowhead.tools.integrity:integrity_report",
+        scope="tools:read",
+        rate_limit_attr="resource_read_per_minute",
+        family="core",
+        description=(
+            "A pinned digest of the enabled tool surface, so a client can "
+            "detect tool-definition changes between sessions."
+        ),
+        mime_type="application/json",
+    ),
+    ResourceSpec(
         uri="docs://index",
         import_path="arrowhead.resources.documents:corpus_index",
         scope="docs:search",
