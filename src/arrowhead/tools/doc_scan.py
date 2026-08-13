@@ -12,13 +12,13 @@ import time
 from typing import TypedDict
 
 import anyio
-from arrowhead.errors import ToolError
 
 from arrowhead.authz.enforce import authorize_action, get_authorizer
 from arrowhead.authz.policy import ACTION_SCAN, KIND_DOCUMENT, KIND_PREFIX, Resource
 from arrowhead.config import get_settings
 from arrowhead.content.provenance import UNTRUSTED_NOTICE
 from arrowhead.content.text_safe import sanitize_text
+from arrowhead.errors import ToolError
 from arrowhead.security.input_validation import ValidationError, validate_relative_path
 from arrowhead.security.secret_scan import scan_text
 from arrowhead.store.document_store import DocumentStoreError, build_document_store
