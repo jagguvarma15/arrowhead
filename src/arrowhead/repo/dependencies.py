@@ -37,13 +37,24 @@ def build_dependency_graph(
     *,
     path_prefix: str = "",
     max_files: int,
+    allow=None,
 ) -> tuple[list[DependencyEdge], bool]:
-    """The bounded import graph under a prefix, plus a truncation flag."""
+    """The bounded import graph under a prefix, plus a truncation flag.
+
+    allow, when given, is a per-path predicate; a file it refuses
+    contributes no edges and no module name, so the graph never reveals a
+    module the caller could not read directly.
+    """
     listing = store.list(
         extensions=frozenset({".py", ".pyi"}),
         max_files=max_files,
         path_prefix=path_prefix,
     )
+    if allow is not None:
+        listing = type(listing)(
+            items=[info for info in listing.items if allow(info.path)],
+            truncated=listing.truncated,
+        )
     internal = {
         name
         for info in listing.items
