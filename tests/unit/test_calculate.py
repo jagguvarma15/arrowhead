@@ -1,6 +1,6 @@
 import pytest
-from fastmcp.exceptions import ToolError
 
+from arrowhead.errors import ToolError
 from arrowhead.tools.calculate import calculate
 
 
