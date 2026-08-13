@@ -132,8 +132,17 @@ class Arrowhead:
         return list(result.values) if result is not None else []
 
     def http_app(self, **kwargs):
-        """Return the ASGI application for serving the server over HTTP."""
+        """Return the ASGI application for serving the server over HTTP.
+
+        Transport security defaults from the active settings, exactly as
+        the standalone server applies it.
+        """
+        from arrowhead.server import transport_security
+
         with self._activate():
+            kwargs.setdefault(
+                "transport_security", transport_security(get_settings())
+            )
             return self.server.streamable_http_app(**kwargs)
 
 
