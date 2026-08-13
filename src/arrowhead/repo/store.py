@@ -145,6 +145,25 @@ class RepoStore:
             raise BinaryFileError("file is binary")
         return data.decode("utf-8", errors="replace")
 
+    def read_bytes_raw(self, relative_path: str) -> bytes:
+        """Read a file's raw bytes, jailed and size-capped, no binary sniff.
+
+        Used to copy a subtree into the sandbox, where a test fixture may
+        legitimately be binary; containment and the byte cap still hold.
+        """
+        resolved = self._resolve(relative_path)
+        if self._excluded_path(relative_path):
+            raise RepoFileNotFoundError("file not found in the repository")
+        if not resolved.is_file():
+            raise RepoFileNotFoundError("file not found in the repository")
+        with resolved.open("rb") as handle:
+            data = handle.read(self._max_file_bytes + 1)
+        if len(data) > self._max_file_bytes:
+            raise RepoFileTooLargeError(
+                f"file exceeds {self._max_file_bytes} bytes"
+            )
+        return data
+
 
 def build_repo_store(settings: Settings) -> RepoStore:
     """Construct the repository store from settings."""
