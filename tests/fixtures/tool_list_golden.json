@@ -49,6 +49,25 @@
     {
       "annotations": {
         "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Explain a repository file or line range through the configured model\nbackend; end_line 0 means to the end. The explanation returns as\nuntrusted data. Example: code_explain(path=\"src/app.py\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "end_line",
+        "path",
+        "start_line"
+      ],
+      "input_required": [
+        "path"
+      ],
+      "name": "code_explain",
+      "scope": "assist:run"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
         "openWorldHint": false,
         "readOnlyHint": true
       },
@@ -250,6 +269,26 @@
         "openWorldHint": true,
         "readOnlyHint": true
       },
+      "description": "Rank candidate passages by relevance to a query through the\nconfigured model backend and return their indices in order.\nExample: rerank(query=\"refund policy\", candidates=[\"...\", \"...\"]).",
+      "has_output_schema": true,
+      "input_properties": [
+        "candidates",
+        "query",
+        "top_k"
+      ],
+      "input_required": [
+        "candidates",
+        "query"
+      ],
+      "name": "rerank",
+      "scope": "assist:run"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
       "description": "Fetch a public http or https URL and return its status, content\ntype, and body text. Private, loopback, link-local, and cloud metadata\naddresses are refused. Example: safe_fetch(url=\"https://example.com/\").",
       "has_output_schema": true,
       "input_properties": [
@@ -294,6 +333,23 @@
       ],
       "name": "sql_query",
       "scope": "sql:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Summarize a unified diff through the configured model backend; the\nsummary returns as untrusted data.\nExample: summarize_diff(diff=\"--- a/x.py\\n+++ b/x.py\\n@@ ...\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "diff"
+      ],
+      "input_required": [
+        "diff"
+      ],
+      "name": "summarize_diff",
+      "scope": "assist:run"
     },
     {
       "annotations": {
