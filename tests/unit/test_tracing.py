@@ -1,5 +1,5 @@
 import pytest
-from fastmcp import Client
+from mcp import Client
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -18,7 +18,7 @@ def exporter():
 
 
 def arrowhead_spans(exporter):
-    """FastMCP emits its own spans; ours carry the arrowhead scope."""
+    """The SDK emits its own spans; ours carry the arrowhead scope."""
     return [
         span
         for span in exporter.get_finished_spans()
@@ -26,11 +26,11 @@ def arrowhead_spans(exporter):
     ]
 
 
-async def test_span_per_tool_call(exporter, stdio_transport):
+async def test_span_per_tool_call(exporter):
     exporter.clear()
     from arrowhead.server import create_server
 
-    async with Client(create_server()) as client:
+    async with Client(create_server(), raise_exceptions=True) as client:
         await client.call_tool("calculate", {"expression": "1 + 1"})
 
     spans = arrowhead_spans(exporter)
@@ -46,21 +46,16 @@ async def test_traceparent_in_meta_joins_the_callers_trace(exporter):
     trace_id = "0af7651916cd43dd8448eb211c80319c"
     parent_span_id = "b7ad6b7169203331"
 
-    from fastmcp.server.middleware import MiddlewareContext
+    from arrowhead.observability.tracing import request_meta_var, tool_span
 
-    from arrowhead.observability.tracing import TracingMiddleware
-
-    class Message:
-        name = "calculate"
-        meta = {"traceparent": f"00-{trace_id}-{parent_span_id}-01"}
-
-    async def call_next(ctx):
-        return "ok"
-
-    result = await TracingMiddleware().on_call_tool(
-        MiddlewareContext(message=Message()), call_next
+    token = request_meta_var.set(
+        {"traceparent": f"00-{trace_id}-{parent_span_id}-01"}
     )
-    assert result == "ok"
+    try:
+        with tool_span("tools/call", "calculate"):
+            pass
+    finally:
+        request_meta_var.reset(token)
 
     spans = arrowhead_spans(exporter)
     assert len(spans) == 1
@@ -70,31 +65,34 @@ async def test_traceparent_in_meta_joins_the_callers_trace(exporter):
     assert span.parent.is_remote
 
 
-async def test_client_trace_context_flows_through_the_server(
-    exporter, stdio_transport
-):
-    """The FastMCP client injects its own traceparent into _meta; the
-    server-side span must join that trace rather than start a new one."""
+async def test_client_trace_context_flows_through_the_server(exporter):
+    """A caller that sends W3C trace context in _meta sees the server-side
+    span join its trace rather than start a new one."""
     exporter.clear()
+    trace_id = "1af7651916cd43dd8448eb211c80319c"
+    parent_span_id = "c7ad6b7169203331"
     from arrowhead.server import create_server
 
-    async with Client(create_server()) as client:
-        await client.call_tool("calculate", {"expression": "1 + 1"})
+    async with Client(create_server(), raise_exceptions=True) as client:
+        await client.call_tool(
+            "calculate",
+            {"expression": "1 + 1"},
+            meta={"traceparent": f"00-{trace_id}-{parent_span_id}-01"},
+        )
 
     spans = arrowhead_spans(exporter)
     assert len(spans) == 1
-    assert spans[0].parent is not None
-    assert spans[0].parent.is_remote
+    span = spans[0]
+    assert format(span.context.trace_id, "032x") == trace_id
+    assert span.parent.is_remote
 
 
-async def test_error_status_recorded_on_refusal(exporter, stdio_transport, jail):
+async def test_error_status_recorded_on_refusal(exporter, jail):
     exporter.clear()
     from arrowhead.server import create_server
 
     async with Client(create_server()) as client:
-        await client.call_tool(
-            "read_file", {"path": "../../etc/passwd"}, raise_on_error=False
-        )
+        await client.call_tool("read_file", {"path": "../../etc/passwd"})
 
     spans = arrowhead_spans(exporter)
     assert len(spans) == 1
