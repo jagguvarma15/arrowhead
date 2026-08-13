@@ -131,11 +131,83 @@ Every tool argument is attacker-controlled input.
   inference a caller with search access already has. The task registry is in
   process, so a task is visible only on the instance that created it.
 
+### Repo intelligence (`code_search`, `code_read`, `symbol_map`, `dependency_graph`)
+
+- **Surface:** read-only access to a source tree, which typically holds
+  credentials in config files, private URLs in version-control metadata, and
+  the shape of an organization's code.
+- **Mitigations:** the repo store applies the document store's containment rule
+  (resolve, then require the path to stay inside the root) to a separate jail,
+  is read-only by construction, prunes `.git` and dependency directories from
+  every walk so version-control internals are unreachable, refuses binary files
+  by content sniff, and caps per-file and per-walk size. Repository resources
+  have their own authorization kinds, so a grant over corpus documents never
+  reaches code and vice versa; the default policy grants only read and search on
+  the repo. Symbol and dependency results are filtered per file, so they never
+  name something in a file the caller could not read directly.
+- **Residual risk:** a caller granted broad repo read can infer the presence of
+  matching content the same way corpus search allows. Symbol extraction for
+  non-Python languages without the tree-sitter extra is a line heuristic and may
+  miss or misclassify a definition.
+
+### Assist tools (`code_explain`, `summarize_diff`, `rerank`)
+
+- **Surface:** an outbound request to a model backend carrying code or a diff,
+  and model output flowing back into the caller's context.
+- **Mitigations:** the completion providers post through the SSRF-guarded,
+  redirect-refusing path the embedding client uses; the API key is
+  configuration-supplied and never appears in an error. `code_explain` reads
+  through the repo jail under the same authorization as `code_read`, so the
+  assist path can reach no code the read path could not. A local model endpoint
+  is reachable only through the exact-pair internal allowlist. Every input is
+  bounded and sanitized, and all model output returns inside the untrusted
+  framing, because a model reading attacker-influenced source can be steered by
+  it; `rerank` asks only for an ordering and parses it defensively, so a hostile
+  answer cannot inject content.
+- **Residual risk:** the backend is a third party (unless self-hosted); what it
+  does with a prompt is outside this server's control. The tools are only as
+  private as the endpoint an operator points them at.
+
+### Sandboxed execution (`run_snippet`, `run_tests`)
+
+- **Surface:** arbitrary code execution, the highest-privilege operation the
+  server offers.
+- **Mitigations:** off by default and denied by the default policy, so a
+  deployment opts in twice (the `ARROWHEAD_EXEC_ENABLED` flag and the `execute`
+  grant). The subprocess runner scrubs the environment, bounds CPU, memory, wall
+  time, output, and process count, runs an explicit argv with no shell, uses a
+  fresh per-call scratch directory, and secret-scans and redacts output.
+  `run_tests` copies only the authorized subtree into scratch, so a test that
+  writes never touches the real repository.
+- **Residual risk (stated plainly):** the subprocess runner does **not** block
+  network egress or filesystem reads beyond OS permissions. A snippet can reach
+  the network and read world-readable files. A deployment that needs those
+  isolated must use the container runner (`--network none`, read-only root) or
+  an external sandbox. On macOS, `RLIMIT_AS` memory bounding is best effort.
+
+### Context packer and working sets (`pack_context`, `workingset_*`)
+
+- **Surface:** a single call that assembles many sources into one bundle, and
+  a per-caller store of pinned references.
+- **Mitigations:** the packer reaches every source through the same internal
+  functions the standalone tools use, re-authorizes each pinned item at pack
+  time, secret-scans and redacts every snippet before it leaves, wraps each in
+  per-snippet untrusted framing with an unforgeable random marker, and caps the
+  bundle at the token budget. Working sets are owner-keyed and bounded exactly
+  like the task registry; a set another owner holds reads as not found, and
+  pinning authorizes each item.
+- **Residual risk:** the working set registry is in process, so a set is visible
+  only on the instance that created it, the same single-instance limitation the
+  task registry documents.
+
 ## Cross-cutting
 
 - **Authentication:** enforced over HTTP; audience validation is mandatory and
   tokens are never forwarded. Over stdio (local development against a process
   the operator already owns) auth is skipped.
+- **Tool integrity:** the `arrowhead://integrity` digest lets a client pin the
+  tool surface it consented to and detect a later change to what a tool
+  advertises.
 - **Authorization:** scopes are split by verb, and the document tools add a
   per-resource, default-deny check on top; a scope alone never grants access to
   a specific document.
@@ -159,9 +231,11 @@ Every tool argument is attacker-controlled input.
 - **TLS termination.** Delegated to the hosting platform or a reverse proxy.
 - **Authorization-server security.** Token issuance, client registration, and
   key rotation belong to the external IdP, not to this server.
-- **Tool-definition pinning / rug-pull detection.** The server sets honest
-  annotations but does not yet expose a pinned tool-definition hash for clients
-  to re-consent against.
+- **Network egress and filesystem isolation for sandboxed execution.** The
+  default subprocess runner bounds resources but does not confine network or
+  filesystem access beyond OS permissions; isolation requires the container
+  runner or an external sandbox. This is a documented property of the runner
+  choice, not a gap to be closed in the subprocess path.
 - **Denial of service beyond per-caller rate limits.** Network-level flood
   protection is the platform's job. The document quota check walks the corpus on
   each write, which is O(corpus size); the in-memory rate-limit store is
