@@ -233,6 +233,31 @@ class Settings(BaseSettings):
     # full delete-and-insert on a schema without it.
     index_reuse_unchanged: bool = True
 
+    # Repo intelligence. The code tools read a jailed repository tree,
+    # separate from the document corpus: read-only by construction, with
+    # version-control and dependency directories pruned from every walk,
+    # binary files refused by content sniff, and per-file and per-walk
+    # caps. Extensions are the text and source formats worth serving.
+    repo_root: Path = Path("repo")
+    repo_max_file_bytes: int = 500_000
+    repo_allowed_extensions: str = (
+        ".c,.cpp,.cs,.go,.h,.hpp,.java,.js,.json,.jsx,.kt,.md,.php,.py,"
+        ".pyi,.rb,.rs,.scala,.sh,.sql,.swift,.toml,.ts,.tsx,.txt,.yaml,.yml"
+    )
+    repo_excluded_dirs: str = (
+        ".git,.hg,.svn,.venv,node_modules,__pycache__,dist,build,target"
+    )
+    repo_search_max_files: int = 5000
+    symbol_map_max_files: int = 500
+    symbol_map_max_symbols: int = 5000
+    dependency_graph_max_files: int = 500
+
+    def repo_allowed_extension_set(self) -> frozenset[str]:
+        return _csv_frozenset(self.repo_allowed_extensions, True)
+
+    def repo_excluded_dir_set(self) -> frozenset[str]:
+        return _csv_frozenset(self.repo_excluded_dirs, False)
+
     # Hybrid retrieval (hybrid_query) fuses vector similarity with
     # Postgres full-text rank via reciprocal rank fusion. The candidate
     # multiplier sizes each branch's pool as a multiple of k; the text
@@ -253,6 +278,10 @@ class Settings(BaseSettings):
     doc_search_per_minute: int = 60
     doc_read_per_minute: int = 60
     hybrid_query_per_minute: int = 30
+    code_search_per_minute: int = 60
+    code_read_per_minute: int = 60
+    symbol_map_per_minute: int = 20
+    dependency_graph_per_minute: int = 10
     doc_retrieve_per_minute: int = 30
     doc_scan_per_minute: int = 20
     doc_write_per_minute: int = 30
