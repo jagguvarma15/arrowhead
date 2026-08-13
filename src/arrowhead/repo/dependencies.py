@@ -72,7 +72,8 @@ def build_dependency_graph(
             module = ast.parse(text)
         except (RepoStoreError, SyntaxError, ValueError):
             continue
-        for target in _imports(module, source):
+        known = internal | packages
+        for target in _imports(module, source, known):
             key = (source, target)
             if key in seen or not target:
                 continue
@@ -96,7 +97,7 @@ def _prefixes(name: str):
         yield ".".join(parts[:index])
 
 
-def _imports(module: ast.Module, source: str):
+def _imports(module: ast.Module, source: str, known: set[str]):
     for node in ast.walk(module):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -109,6 +110,13 @@ def _imports(module: ast.Module, source: str):
                 trim = node.level if len(base) > 1 else node.level - 1
                 anchor = base[: len(base) - trim] if trim else base
                 stem = ".".join(anchor)
-                yield f"{stem}.{node.module}" if node.module else stem
+                stem = f"{stem}.{node.module}" if node.module else stem
             elif node.module:
-                yield node.module
+                stem = node.module
+            else:
+                continue
+            # "from pkg import util" names either a submodule or a symbol;
+            # prefer the submodule edge when the repository defines it.
+            for alias in node.names:
+                candidate = f"{stem}.{alias.name}"
+                yield candidate if candidate in known else stem
