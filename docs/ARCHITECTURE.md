@@ -1,35 +1,51 @@
 # Architecture
 
-Arrowhead is a FastMCP v3 application served over streamable HTTP in stateless
-mode (stdio for local development). Stateless means the server keeps no
-per-session state, so any replica can serve any request and horizontal scaling
-needs no sticky sessions. Shared state that must survive across replicas — the
-rate-limit buckets — lives in Redis, keyed explicitly rather than by transport
-session.
+Arrowhead is an application on the official MCP Python SDK (the `mcp` package,
+version 2), served over streamable HTTP in stateless mode (stdio for local
+development). Stateless means the server keeps no per-session state, so any
+replica can serve any request and horizontal scaling needs no sticky sessions.
+Shared state that must survive across replicas — the rate-limit buckets — lives
+in Redis, keyed explicitly rather than by transport session.
+
+One endpoint serves both protocol eras. A request carrying the reserved `_meta`
+envelope takes the sessionless 2026-07-28 leg; a request that sends the
+`initialize` lifecycle takes the handshake-era leg, negotiated down to the
+latest handshake version. The SDK routes between them; the application
+configures nothing.
 
 ## Request flow
 
-Every `tools/call` passes through the same chain before and after the tool
-runs. The middleware is ordered so the trace span wraps everything and the
-audit line records the outcome of even the requests that never reach a tool.
+The guards do not live in message middleware. Each tool, resource, and prompt is
+registered wrapped in a guard chain (`arrowhead.runtime.guards`) that reproduces
+the prior middleware order on the component itself, so an import-and-call
+invocation (`Arrowhead.call`) runs the identical path as an HTTP request with no
+duplicated logic. Two thin SDK middlewares remain, and neither refuses: one
+records the request `_meta` for trace-context propagation, the other filters
+list results by the kill switch and scope. Every refusal lives in the wrapper.
 
 ```
 client
   |
   v
-[ TLS termination ]            platform / reverse proxy (not FastMCP)
+[ TLS termination ]            platform / reverse proxy (not the server)
   |
   v
-[ Host / Origin check ]        rejects rebinding of the endpoint
+[ Host / Origin check ]        rejects rebinding of the endpoint (when configured)
   |
   v
-[ OAuth 2.1 verification ]     signature, issuer, expiry, audience -> 401 on failure
+[ Token verification ]         JWKS signature, issuer, expiry, audience -> 401 on failure
   |
   v
-[ Tracing middleware ]         opens an OpenTelemetry span, joins caller trace context
+[ meta-capture middleware ]    records request _meta for trace propagation (never refuses)
   |
   v
-[ Audit middleware ]           will log caller, tool, arg shapes, status, latency
+--- guard wrapper on the component ---------------------------------
+  |
+  v
+[ Tracing span ]               opens an OpenTelemetry span, joins caller trace context
+  |
+  v
+[ Audit ]                      times the call; will log caller, name, arg shapes, status
   |
   v
 [ Kill switch ]                refuses disabled tools
@@ -38,19 +54,24 @@ client
 [ Rate limiter ]               per-caller, per-tool token bucket (Redis-backed)
   |
   v
-[ Scope check ]                caller must hold the tool's scope, else the tool is invisible
+[ Scope check ]                caller must hold the scope, else the component is unknown
   |
   v
-[ Tool handler ]               input validation
-  |                              -> per-resource authorization (document tools)
+[ Handler ]                    input validation
+  |                              -> per-resource authorization (document, repo, exec)
   |                              -> guarded action
   |                              -> content sanitization + provenance (read side)
-  |                              (ssrf_guard / sandbox / path jail / authz / content)
-  v
-[ Audit middleware ]           emits one structured log line
+  |                              (ssrf_guard / runner / path jail / authz / content)
   |
   v
-[ Tracing middleware ]         closes the span with ok/error status
+[ Exception boundary ]         ToolError re-raised verbatim; anything else masked
+  |
+  v
+[ Audit ]                      emits one structured log line (ok / refused / error)
+  |
+  v
+[ Tracing span ]               closes with ok/error status
+--------------------------------------------------------------------
   |
   v
 client
@@ -86,47 +107,61 @@ resource server.
 
 ```
 src/arrowhead/
-  server.py              builds the app: auth provider + middleware + components
+  server.py              builds the MCPServer: verifier + cache hints + components
   app.py                 importable facade: call, read_resource, get_prompt
   config.py              all settings, ARROWHEAD_-prefixed environment vars
-  cache.py               ttlMs / cacheScope hints on tools/list
+  errors.py              the project ToolError every guard and tool raises
+  runtime/
+    guards.py            per-component guard wrappers + listing filter
   auth/
-    oauth.py             resource server + mandatory audience validation
+    oauth.py             resource server wiring + mandatory audience validation
+    verifier.py          in-house JWKS bearer verifier (pyjwt)
     scopes.py            component -> required scope, split by verb
     identity.py          caller identity from the validated token only
     principal.py         in-process principal for the import path
   authz/
     policy.py            default-deny per-resource ABAC + Authorizer seam
     enforce.py           enforcement point every component calls
-    confirmation.py      elicitation confirmation for destructive actions
+    confirmation.py      Resolve-based confirmation for destructive actions
   store/
     document_store.py    jailed corpus: read, list, stat, atomic write
+  repo/
+    store.py             jailed, read-only source tree
+    symbols.py           symbol extraction (ast / tree-sitter / heuristic)
+    dependencies.py      bounded Python import graph
   content/
     provenance.py        untrusted-data wrapping with randomized delimiters
     render.py            shared format-aware document renderer
-    json_safe.py         bounded JSON parsing
-    markdown_safe.py     HTML and image-exfiltration removal
-    text_safe.py         ANSI / control / invisible-character stripping
+    chunking.py          bounded character windows
+    code_chunking.py     structure-aware chunking for source files
+    json_safe.py, markdown_safe.py, text_safe.py   format sanitizers
   tools/
-    catalog.py           the component contract: tool/resource/prompt specs
-    registry.py          registers tools, resources, prompts, completions
-    safe_fetch.py, calculate.py, read_file.py, doc_*.py   the built-in tools
+    catalog.py           the component contract: specs, families, profiles
+    registry.py          registers in-profile components behind the guards
+    integrity.py         the pinned tool-surface digest
+    <tool>.py            one module per tool
   connectors/
     sql.py               vetted read-only SQL over a pooled async engine
     pgvector.py          pgvector search with server-side tenant isolation
+    hybrid.py            vector + full-text fusion retrieval
+    pgvector_index.py    diff-aware chunk-and-embed ingestion
     tasks.py             handle-based async tasks, owner-scoped
-  resources/
-    documents.py         doc://{path} template + docs://index listing
-  prompts/
-    library.py           the curated, argument-sanitizing prompt set
-  completions/
-    handlers.py          argument completion, wrapped in the tool-call guards
+  embeddings/            the embedding provider seam
+  llm/
+    base.py, transport.py, anthropic_http.py, openai_http.py, factory.py
+                         the completion provider seam, one hardened HTTP path
+  exec/
+    base.py              the runner seam: request and outcome
+    subprocess_runner.py rlimit-bounded, env-scrubbed subprocess
+    container_runner.py  network-none, read-only container runner
+  workingsets.py         owner-scoped working set registry
+  resources/, prompts/, completions/                the non-tool primitives
   security/
-    ssrf_guard.py        resolve, block private ranges and ports, pin the address
+    ssrf_guard.py        resolve, block private ranges, pin; trusted-internal gate
     input_validation.py  shared allowlist validators
     sandbox.py           AST arithmetic interpreter (no eval)
     search_match.py      ReDoS-safe literal / timed-regex matcher
-    secret_scan.py       fixed-pattern secret and PII detection
+    secret_scan.py       fixed-pattern secret/PII detection and redaction
     rate_limit.py        token-bucket limiter, memory or Redis store
     kill_switch.py       per-component disable
   observability/
