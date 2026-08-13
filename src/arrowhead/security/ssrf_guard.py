@@ -101,6 +101,7 @@ async def resolve_pinned(
     getaddrinfo=None,
     allowed_hosts: frozenset[str] | None = None,
     allowed_ports: frozenset[int] | None = None,
+    trusted_internal: frozenset[str] = frozenset(),
 ) -> PinnedTarget:
     """Vet a URL and pin the address the caller must connect to.
 
@@ -117,6 +118,15 @@ async def resolve_pinned(
     The target port must be 80 or 443, or one of allowed_ports when a
     deployment configures extras, so a public host cannot be used to reach an
     internal service on a non-web port.
+
+    trusted_internal is a deliberate, separately configured exemption for
+    operator-owned infrastructure such as a local model server: when the
+    URL's exact lowercased host:port pair is in the set, the reachability
+    refusals (egress allowlist, port allowlist, non-public address) are
+    skipped for that pair alone. The scheme check, the single resolution,
+    and the address pinning still apply. Only configuration-addressed
+    clients pass this set; a caller-supplied URL must never reach a
+    trusted pair, so the fetch tools do not accept the parameter.
     """
     parts = urlsplit(url)
     scheme = parts.scheme.lower()
@@ -125,8 +135,6 @@ async def resolve_pinned(
     host = parts.hostname
     if not host:
         raise BlockedURLError("URL has no host")
-    if allowed_hosts and host.lower() not in allowed_hosts:
-        raise BlockedURLError("host is not in the egress allowlist")
     # parts.port raises ValueError for an out-of-range or non-numeric port;
     # turn that into a refusal rather than letting it escape the tool.
     try:
@@ -134,13 +142,18 @@ async def resolve_pinned(
     except ValueError as exc:
         raise BlockedURLError("URL has an invalid port") from exc
     port = explicit_port if explicit_port is not None else DEFAULT_PORTS[scheme]
-    if port not in (DEFAULT_ALLOWED_PORTS | (allowed_ports or frozenset())):
-        raise BlockedURLError("port is not allowed")
+    trusted = f"{host.lower()}:{port}" in trusted_internal
+    if not trusted:
+        if allowed_hosts and host.lower() not in allowed_hosts:
+            raise BlockedURLError("host is not in the egress allowlist")
+        if port not in (DEFAULT_ALLOWED_PORTS | (allowed_ports or frozenset())):
+            raise BlockedURLError("port is not allowed")
 
     addresses = await _resolve(host, port, getaddrinfo)
-    for address in addresses:
-        if is_blocked_address(address):
-            raise BlockedURLError("host resolves to a blocked address")
+    if not trusted:
+        for address in addresses:
+            if is_blocked_address(address):
+                raise BlockedURLError("host resolves to a blocked address")
 
     return PinnedTarget(
         scheme=scheme,
