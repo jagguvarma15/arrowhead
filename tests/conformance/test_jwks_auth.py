@@ -15,10 +15,12 @@ import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
-from fastmcp import FastMCP
+from mcp.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
-from arrowhead.auth.oauth import build_auth_provider
+from arrowhead.auth.oauth import build_auth
 from arrowhead.config import get_settings
+from arrowhead.runtime.guards import Guards
 from arrowhead.tools.registry import register_tools
 
 ISSUER = "https://idp.test"
@@ -81,12 +83,25 @@ def jwks_app(keypair, monkeypatch):
     get_settings.cache_clear()
 
     def build(served_kid: str):
-        provider = build_auth_provider(
+        verifier, auth_settings = build_auth(
             get_settings(), http_client=jwks_client(public_pem, served_kid)
         )
-        mcp = FastMCP("jwks-test", auth=provider)
-        register_tools(mcp, enforce_scopes=True)
-        return mcp.http_app(json_response=True, stateless_http=True)
+        mcp = MCPServer(
+            "jwks-test", token_verifier=verifier, auth=auth_settings
+        )
+        register_tools(
+            mcp,
+            guards=Guards(
+                enforce_scopes=True, rate_limiter=None, disabled=frozenset()
+            ),
+        )
+        return mcp.streamable_http_app(
+            json_response=True,
+            stateless_http=True,
+            transport_security=TransportSecuritySettings(
+                enable_dns_rebinding_protection=False
+            ),
+        )
 
     return build
 
