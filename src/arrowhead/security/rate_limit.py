@@ -1,30 +1,31 @@
 """Per-caller token-bucket rate limiting with per-tool ceilings.
 
-Each (caller, tool) pair gets its own bucket. Ceilings differ by cost:
-safe_fetch is network-bound and gets a low ceiling, calculate is cheap
-and gets a high one. Exceeding a limit returns a clear tool error the
-caller can back off from; it never crashes the request.
+Each (caller, component) pair gets its own bucket. Ceilings differ by
+cost: safe_fetch is network-bound and gets a low ceiling, calculate is
+cheap and gets a high one. Exceeding a limit returns a clear tool error
+the caller can back off from; it never crashes the request.
 
 The bucket state lives in Redis when ARROWHEAD_REDIS_URL is set, so
 limits hold across replicas of the stateless server. Without Redis an
-in-process store is used and limits are per replica.
+in-process store is used and limits are per replica. Enforcement runs
+inside the guard wrappers, so the import door meters exactly like the
+wire.
 """
 
 import time
 from collections import OrderedDict
 from typing import Protocol
 
-from fastmcp.exceptions import ToolError
-from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
-
 from arrowhead.auth.identity import caller_identity
 from arrowhead.config import Settings
+from arrowhead.errors import ToolError
 
-# Cap on the number of distinct (caller, tool) buckets the in-memory store
-# retains, so a stream of unique caller identities cannot grow it without
-# bound. When the cap is reached an unpenalized bucket (one that still has a
-# token to spend) is evicted in preference to a rate-limited one, so a flood of
-# new keys cannot evict and thereby reset a caller's own throttled bucket.
+# Cap on the number of distinct (caller, component) buckets the in-memory
+# store retains, so a stream of unique caller identities cannot grow it
+# without bound. When the cap is reached an unpenalized bucket (one that
+# still has a token to spend) is evicted in preference to a rate-limited
+# one, so a flood of new keys cannot evict and thereby reset a caller's own
+# throttled bucket.
 _DEFAULT_MAX_ENTRIES = 100_000
 # How many of the oldest buckets to scan for an unpenalized eviction victim
 # before falling back to dropping the oldest, keeping eviction near-constant.
@@ -159,7 +160,7 @@ class RedisTokenBucketStore:
         await self._client.aclose()
 
 
-class RateLimitMiddleware(Middleware):
+class RateLimiter:
     def __init__(
         self,
         store: TokenBucketStore,
@@ -171,32 +172,11 @@ class RateLimitMiddleware(Middleware):
         self._limits = limits_per_minute
         self._default = default_per_minute
 
-    async def on_call_tool(
-        self, context: MiddlewareContext, call_next: CallNext
-    ):
-        await self._enforce(context.message.name)
-        return await call_next(context)
-
-    async def on_read_resource(
-        self, context: MiddlewareContext, call_next: CallNext
-    ):
-        # Resource reads share one per-caller bucket, keyed by the operation
-        # class rather than the resource URI, so an unbounded set of URIs
-        # cannot create an unbounded set of buckets.
-        await self._enforce("resource:read")
-        return await call_next(context)
-
-    async def on_get_prompt(
-        self, context: MiddlewareContext, call_next: CallNext
-    ):
-        await self._enforce("prompt:get")
-        return await call_next(context)
-
     async def allow(self, component: str) -> bool:
         """Whether a call to component is permitted now, without raising.
 
-        Used by request paths outside the middleware chain (argument
-        completion) so they share the same per-caller ceilings.
+        Used by request paths that degrade gracefully (argument completion)
+        so they share the same per-caller ceilings.
         """
         return await self._check(component)
 
@@ -219,7 +199,8 @@ class RateLimitMiddleware(Middleware):
             key, capacity=float(limit), refill_per_second=limit / 60.0
         )
 
-    async def _enforce(self, component: str) -> None:
+    async def enforce(self, component: str) -> None:
+        """Raise the refusal when the caller exhausted this component's limit."""
         if not await self._check(component):
             limit = self._limits.get(component, self._default)
             raise RateLimitExceededError(
@@ -236,7 +217,7 @@ class RateLimitMiddleware(Middleware):
         await self._store.aclose()
 
 
-def build_rate_limit_middleware(settings: Settings) -> RateLimitMiddleware | None:
+def build_rate_limiter(settings: Settings) -> RateLimiter | None:
     if not settings.rate_limit_enabled:
         return None
     if settings.redis_url:
@@ -252,7 +233,7 @@ def build_rate_limit_middleware(settings: Settings) -> RateLimitMiddleware | Non
     limits["resource:read"] = settings.resource_read_per_minute
     limits["prompt:get"] = settings.prompt_get_per_minute
     limits["completion"] = settings.completion_per_minute
-    return RateLimitMiddleware(
+    return RateLimiter(
         store,
         limits,
         default_per_minute=settings.default_tool_per_minute,
