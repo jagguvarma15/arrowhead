@@ -31,7 +31,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 import anyio
-from fastmcp.exceptions import ToolError
 
 from arrowhead.authz.enforce import authorize_action
 from arrowhead.authz.policy import (
@@ -43,6 +42,7 @@ from arrowhead.authz.policy import (
 from arrowhead.config import get_settings
 from arrowhead.content.provenance import ProvenancedResult, wrap_content
 from arrowhead.content.text_safe import sanitize_text
+from arrowhead.errors import ToolError
 
 # A query that references no table is authorized against this sentinel resource
 # rather than skipping authorization, so a policy scoped to specific tables can

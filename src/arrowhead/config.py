@@ -55,9 +55,18 @@ class Settings(BaseSettings):
 
     # Host/Origin allowlists defend against DNS rebinding of the local
     # endpoint. Comma-separated; set these to the public hostname when
-    # deploying behind a proxy. Empty leaves FastMCP's localhost defaults.
+    # deploying behind a proxy. Empty leaves the check off, matching the
+    # documented platform-proxy posture.
     allowed_hosts: str = ""
     allowed_origins: str = ""
+
+    # Which tool families this deployment exposes. Every connected model
+    # pays context for each listed tool, so a deployment serving one job
+    # should expose one profile, not everything: core is the three
+    # utility tools, docs adds the document suite with its data and task
+    # tools, coding is the code-focused surface, and full (the default)
+    # is every family the catalog declares.
+    profile: Literal["core", "docs", "coding", "full"] = "full"
 
     def allowed_hosts_list(self) -> list[str] | None:
         hosts = [h.strip() for h in self.allowed_hosts.split(",") if h.strip()]
@@ -185,6 +194,8 @@ class Settings(BaseSettings):
     # retrieved chunk carries its source document and position as a citation.
     pgvector_source_column: str = "source"
     pgvector_chunk_index_column: str = "chunk_index"
+    pgvector_content_hash_column: str = "content_hash"
+    pgvector_tsvector_column: str = "content_tsv"
     pgvector_max_k: int = 50
     pgvector_max_dimensions: int = 2000
 
@@ -212,6 +223,128 @@ class Settings(BaseSettings):
     vector_index_chunk_max_chars: int = 1500
     vector_index_chunk_overlap: int = 200
     vector_index_timeout_seconds: float = 30.0
+    # Code files chunk along their structure (a Python file splits at its
+    # top-level definitions) with a wider window than prose, so a function
+    # is less likely to be cut mid-body.
+    code_chunk_max_chars: int = 2000
+    # A re-index skips chunks whose content hash is unchanged, so only
+    # edited chunks are re-embedded and rewritten. Requires the
+    # content_hash column from the schema file; set false to restore the
+    # full delete-and-insert on a schema without it.
+    index_reuse_unchanged: bool = True
+
+    # Working sets and the context packer. A working set is a named,
+    # owner-scoped collection of pinned documents and repo files an agent
+    # curates across calls; the packer assembles a token-budgeted bundle
+    # from it plus retrieval, secret-scanned and provenance-stamped. The
+    # registry lives in process, the same single-instance limitation the
+    # task registry documents. Bounds keep one caller from growing state
+    # without limit.
+    workingset_max_sets: int = 100
+    workingset_max_items: int = 200
+    workingset_get_per_minute: int = 60
+    workingset_update_per_minute: int = 30
+    pack_max_tokens: int = 8000
+    pack_context_per_minute: int = 10
+
+    # Repo intelligence. The code tools read a jailed repository tree,
+    # separate from the document corpus: read-only by construction, with
+    # version-control and dependency directories pruned from every walk,
+    # binary files refused by content sniff, and per-file and per-walk
+    # caps. Extensions are the text and source formats worth serving.
+    repo_root: Path = Path("repo")
+    repo_max_file_bytes: int = 500_000
+    repo_allowed_extensions: str = (
+        ".c,.cpp,.cs,.go,.h,.hpp,.java,.js,.json,.jsx,.kt,.md,.php,.py,"
+        ".pyi,.rb,.rs,.scala,.sh,.sql,.swift,.toml,.ts,.tsx,.txt,.yaml,.yml"
+    )
+    repo_excluded_dirs: str = (
+        ".git,.hg,.svn,.venv,node_modules,__pycache__,dist,build,target"
+    )
+    repo_search_max_files: int = 5000
+    symbol_map_max_files: int = 500
+    symbol_map_max_symbols: int = 5000
+    dependency_graph_max_files: int = 500
+
+    def repo_allowed_extension_set(self) -> frozenset[str]:
+        return _csv_frozenset(self.repo_allowed_extensions, True)
+
+    def repo_excluded_dir_set(self) -> frozenset[str]:
+        return _csv_frozenset(self.repo_excluded_dirs, False)
+
+    # Hybrid retrieval (hybrid_query) fuses vector similarity with
+    # Postgres full-text rank via reciprocal rank fusion. The candidate
+    # multiplier sizes each branch's pool as a multiple of k; the text
+    # search configuration must name an installed Postgres regconfig and
+    # is always bound as a parameter, never interpolated.
+    hybrid_rrf_k: int = 60
+    hybrid_candidate_multiplier: int = 4
+    fts_language: str = "english"
+
+    # Completion backend for the assist tools. "none" (the default) keeps
+    # them refusing with a clear message; "anthropic" posts to the
+    # Anthropic Messages API; "openai" posts to any OpenAI-compatible
+    # chat-completions URL, which covers Ollama, vLLM, LM Studio, and most
+    # cloud deployments. The endpoint is the full URL; the key is supplied
+    # out of band and never appears in an error. A local endpoint must be
+    # named in llm_internal_hosts (exact host:port pairs) to be reachable,
+    # a deliberate exemption that only configuration-addressed clients use.
+    llm_provider: Literal["none", "anthropic", "openai"] = "none"
+    llm_endpoint: str = ""
+    llm_model: str = ""
+    llm_api_key: str = ""
+    llm_max_tokens: int = 1024
+    llm_timeout_seconds: float = 60.0
+    llm_max_prompt_chars: int = 32_000
+    llm_internal_hosts: str = ""
+    # summarize_diff accepts a caller-supplied unified diff up to this size.
+    diff_max_bytes: int = 200_000
+
+    def llm_internal_host_set(self) -> frozenset[str]:
+        return _csv_frozenset(self.llm_internal_hosts, True)
+
+    @field_validator("llm_internal_hosts")
+    @classmethod
+    def _validate_llm_internal_hosts(cls, value: str) -> str:
+        """Each entry must be an exact host:port pair, so the exemption can
+        never be broader than one named endpoint."""
+        for entry in value.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            host, separator, port = entry.rpartition(":")
+            if not separator or not host or not port.isdigit():
+                raise ValueError(
+                    "llm_internal_hosts entries must be host:port pairs "
+                    f"(got {entry!r})"
+                )
+            if not 1 <= int(port) <= 65535:
+                raise ValueError(
+                    f"llm_internal_hosts has an out-of-range port: {port}"
+                )
+        return value
+
+    # Sandboxed execution. Off by default and, even when enabled, denied
+    # by the default authorization policy: a deployment opts in twice, by
+    # setting exec_enabled and granting the execute action. The subprocess
+    # runner bounds CPU, memory, wall time, and output and scrubs the
+    # environment, but does not block network or filesystem reads beyond
+    # OS permissions; a deployment needing isolation uses the container
+    # runner (network-none, read-only root) or an external sandbox.
+    exec_enabled: bool = False
+    exec_runner: Literal["subprocess", "container"] = "subprocess"
+    exec_container_image: str = ""
+    exec_workdir: Path = Path("exec-scratch")
+    exec_cpu_seconds: int = 10
+    exec_wall_seconds: float = 30.0
+    exec_test_wall_seconds: float = 120.0
+    exec_memory_bytes: int = 512_000_000
+    exec_max_output_bytes: int = 200_000
+    exec_max_code_bytes: int = 100_000
+    exec_max_copy_bytes: int = 50_000_000
+    # The test command run_tests executes inside the scratch copy, split
+    # shell-style into an argv; empty refuses run_tests.
+    exec_test_command: str = ""
 
     # abuse controls. Ceilings are calls per caller per minute; network-
     # bound safe_fetch gets a low ceiling, cheap calculate a high one.
@@ -223,6 +356,16 @@ class Settings(BaseSettings):
     read_file_per_minute: int = 60
     doc_search_per_minute: int = 60
     doc_read_per_minute: int = 60
+    hybrid_query_per_minute: int = 30
+    code_search_per_minute: int = 60
+    code_read_per_minute: int = 60
+    symbol_map_per_minute: int = 20
+    dependency_graph_per_minute: int = 10
+    code_explain_per_minute: int = 10
+    summarize_diff_per_minute: int = 10
+    rerank_per_minute: int = 20
+    run_snippet_per_minute: int = 10
+    run_tests_per_minute: int = 4
     doc_retrieve_per_minute: int = 30
     doc_scan_per_minute: int = 20
     doc_write_per_minute: int = 30
@@ -319,6 +462,25 @@ class Settings(BaseSettings):
                     f"egress_allowed_ports has an out-of-range port: {port}"
                 )
         return value
+
+    @field_validator("fts_language")
+    @classmethod
+    def _validate_fts_language(cls, value: str) -> str:
+        """Constrain the text-search configuration to a plain lowercase name.
+
+        The value is always bound as a query parameter, so this is defense
+        in depth against a config value shaped like SQL rather than a
+        Postgres regconfig name.
+        """
+        cleaned = value.strip()
+        if not cleaned or not all(
+            ch.isalpha() and ch.islower() or ch == "_" for ch in cleaned
+        ):
+            raise ValueError(
+                "fts_language must be a lowercase Postgres text search "
+                f"configuration name (got {value!r})"
+            )
+        return cleaned
 
     @field_validator("sql_dialect")
     @classmethod

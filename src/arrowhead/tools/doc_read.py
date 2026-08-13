@@ -9,7 +9,6 @@ and invisible characters stripped.
 """
 
 import anyio
-from fastmcp.exceptions import ToolError
 
 from arrowhead.authz.enforce import authorize_action
 from arrowhead.authz.policy import ACTION_READ, KIND_DOCUMENT, Resource
@@ -18,6 +17,7 @@ from arrowhead.content.json_safe import JSONSafetyError
 from arrowhead.content.provenance import ProvenancedResult, wrap_content
 from arrowhead.content.render import render_document
 from arrowhead.content.text_safe import TextSafetyError
+from arrowhead.errors import ToolError
 from arrowhead.security.input_validation import ValidationError, validate_document_path
 from arrowhead.store.document_store import DocumentStoreError, build_document_store
 

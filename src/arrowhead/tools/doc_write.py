@@ -4,24 +4,29 @@ Validates the path and content, validates the content parses as its
 format, then authorizes the write against the per-resource policy. A new
 document is written with a no-clobber atomic move. Overwriting an existing
 document is destructive: it requires an explicit overwrite flag and, when
-the client supports it, human confirmation via elicitation. The store
-writes to a temporary file and moves it into place, so a reader never sees
-a partial document.
+the client supports it, human confirmation via elicitation, resolved by
+the framework before this body runs. The store writes to a temporary file
+and moves it into place, so a reader never sees a partial document.
 """
 
 import json
 from pathlib import PurePosixPath
-from typing import TypedDict
+from typing import Annotated, TypedDict
 
 import anyio
-from fastmcp import Context
-from fastmcp.exceptions import ToolError
+from mcp.server.mcpserver import Resolve
 
-from arrowhead.authz.confirmation import CONFIRM_DECLINED, request_confirmation
+from arrowhead.authz.confirmation import (
+    ConfirmOverwrite,
+    ElicitationResult,
+    confirm_overwrite,
+    confirmation_declined,
+)
 from arrowhead.authz.enforce import authorize_action
 from arrowhead.authz.policy import ACTION_WRITE, KIND_DOCUMENT, Resource
 from arrowhead.config import get_settings
 from arrowhead.content.json_safe import JSONSafetyError, parse_json
+from arrowhead.errors import ToolError
 from arrowhead.security.input_validation import (
     ValidationError,
     validate_document_path,
@@ -43,7 +48,9 @@ async def doc_write(
     path: str,
     content: str,
     overwrite: bool = False,
-    ctx: Context | None = None,
+    confirmation: Annotated[
+        ElicitationResult[ConfirmOverwrite], Resolve(confirm_overwrite)
+    ] = None,
 ) -> WriteResult:
     """Write a JSON, Markdown, or text document to the corpus. Creates a new
     document; set overwrite to replace an existing one, which asks for
@@ -72,12 +79,10 @@ async def doc_write(
             raise ToolError(
                 "document already exists; pass overwrite=true to replace it"
             )
-        if settings.require_write_confirmation:
-            outcome = await request_confirmation(
-                ctx, f"Overwrite the existing document at '{path}'?"
-            )
-            if outcome == CONFIRM_DECLINED:
-                raise ToolError("overwrite was declined")
+        if settings.require_write_confirmation and confirmation_declined(
+            confirmation
+        ):
+            raise ToolError("overwrite was declined")
 
     try:
         info = await anyio.to_thread.run_sync(

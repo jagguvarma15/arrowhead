@@ -1,9 +1,9 @@
 import pytest
-from fastmcp.exceptions import ToolError
 
 import arrowhead.tools.doc_retrieve as module
 from arrowhead.authz.enforce import get_authorizer
 from arrowhead.config import get_settings
+from arrowhead.errors import ToolError
 
 
 def stub_response(monkeypatch, *, content_type, body, status=200):

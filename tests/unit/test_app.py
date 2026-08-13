@@ -4,10 +4,10 @@ and adopts the current principal.
 """
 
 import pytest
-from fastmcp.exceptions import ToolError
 
 from arrowhead import Arrowhead, Settings
 from arrowhead.auth.identity import caller_identity
+from arrowhead.errors import ToolError
 
 
 async def test_call_runs_a_tool_and_returns_its_result():
@@ -35,12 +35,16 @@ async def test_the_same_handle_reuses_one_server():
     assert app.server is app.server
 
 
-async def test_list_tools_returns_the_catalog_when_auth_is_off():
+async def test_list_tools_returns_the_registered_catalog_when_auth_is_off():
     app = Arrowhead()
     from arrowhead.tools.catalog import TOOL_SPECS
+    from arrowhead.tools.registry import active_families
 
+    families = active_families()
     names = {tool.name for tool in await app.list_tools()}
-    assert names == {spec.name for spec in TOOL_SPECS}
+    assert names == {
+        spec.name for spec in TOOL_SPECS if spec.family in families
+    }
 
 
 async def test_as_principal_adopts_the_caller():

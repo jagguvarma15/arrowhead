@@ -33,6 +33,11 @@ ACTION_FETCH = "fetch"
 # grant retrieval ingestion independently of document writes. It is absent from
 # the default grants, so ingestion is denied until a deployment allows it.
 ACTION_INGEST = "ingest"
+# Running code in the sandbox is its own verb, absent from the default grants,
+# so execution is denied until a deployment explicitly allows it, on top of
+# the exec_enabled flag. A wildcard action still covers it, so a broad grant
+# is a deliberate operator choice.
+ACTION_EXECUTE = "execute"
 
 # A grant prefix may contain this token, expanded to the requesting
 # subject before matching, so one rule can scope every caller to its own
@@ -58,6 +63,12 @@ KIND_TABLE = "table"
 # the default policy does not grant it, so a tableless query (which can hide a
 # table read or a side effect inside a function) requires an explicit grant.
 KIND_TABLELESS = "tableless"
+# Repository resources live in their own kinds so a grant over corpus
+# documents never implicitly covers source code, and vice versa. A repo
+# file is a point resource under the repo jail; a repo prefix is a range
+# query (search, symbol map, dependency graph) over files beneath a path.
+KIND_REPO_FILE = "repo_file"
+KIND_REPO_PREFIX = "repo_prefix"
 
 
 @dataclass(frozen=True)
@@ -117,7 +128,7 @@ class Grant:
             # namespace it is scoped to; refuse to expand such a subject.
             return False
         expanded = self.prefix.replace(SUBJECT_TOKEN, subject)
-        if resource.kind == KIND_PREFIX:
+        if resource.kind in (KIND_PREFIX, KIND_REPO_PREFIX):
             # A range query (search, scan) is allowed if the requested area
             # overlaps a granted area (either contains or is contained by
             # it). The per-document filter then restricts which documents are
@@ -189,6 +200,15 @@ _DEFAULT_GRANTS = [
         actions=frozenset({ACTION_WRITE}),
         prefix=f"{SUBJECT_TOKEN}/",
         kinds=frozenset({KIND_DOCUMENT}),
+    ),
+    # Repository reads and search, kept to the repo kinds so widening or
+    # narrowing code access never touches document access. The repo jail
+    # is read-only by construction, so no write grant exists for it.
+    Grant(
+        subject="*",
+        actions=frozenset({ACTION_SEARCH, ACTION_READ}),
+        prefix="",
+        kinds=frozenset({KIND_REPO_FILE, KIND_REPO_PREFIX}),
     ),
 ]
 

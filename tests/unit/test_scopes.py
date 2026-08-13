@@ -1,43 +1,58 @@
-from fastmcp import FastMCP
-from fastmcp.server.auth import AuthContext
-from fastmcp.server.context import _current_transport
+import pytest
+from mcp.server import MCPServer
 
-from arrowhead.auth.scopes import TOOL_SCOPES, scope_checks, supported_scopes
+from arrowhead.auth.scopes import (
+    TOOL_SCOPES,
+    has_scope,
+    require_scope,
+    supported_scopes,
+)
+from arrowhead.errors import ToolError
+from arrowhead.runtime.guards import Guards, visible_tools
 from arrowhead.tools.catalog import PROMPT_SPECS, RESOURCE_SPECS, TOOL_SPECS
 from arrowhead.tools.registry import register_tools
 
-# Derived from the catalog so this stays correct as tools are added: every tool
-# the catalog declares is registered and must be visible on stdio.
-REGISTERED_TOOLS = {spec.name for spec in TOOL_SPECS}
+
+def registered_tools() -> set[str]:
+    """The tools register_tools actually registers for the current settings:
+    every family the active profile exposes, which excludes the exec family
+    until it is enabled. Computed per call so it tracks the test's env."""
+    from arrowhead.tools.registry import active_families
+
+    families = active_families()
+    return {spec.name for spec in TOOL_SPECS if spec.family in families}
 
 
-async def test_tools_hidden_without_credentials_and_visible_on_stdio():
-    mcp = FastMCP("scope-check")
-    register_tools(mcp)
+def _guards(enforce: bool) -> Guards:
+    return Guards(
+        enforce_scopes=enforce, rate_limiter=None, disabled=frozenset()
+    )
 
-    # No transport context means no token: scoped tools must be invisible.
-    assert await mcp.list_tools() == []
 
-    # stdio is local development; FastMCP skips component auth there.
-    reset = _current_transport.set("stdio")
-    try:
-        tools = await mcp.list_tools()
-    finally:
-        _current_transport.reset(reset)
-    assert {tool.name for tool in tools} == REGISTERED_TOOLS
+async def test_tools_hidden_from_anonymous_only_when_auth_is_enforced():
+    mcp = MCPServer("scope-check")
+    register_tools(mcp, guards=_guards(True))
+    tools = await mcp.list_tools()
+
+    # With auth enforced and no token, every scoped tool is invisible.
+    assert visible_tools(tools, _guards(True)) == []
+
+    # Without auth there is no token to check scopes against; everything
+    # registers and lists, and the per-resource policy remains the guard.
+    assert {
+        tool.name for tool in visible_tools(tools, _guards(False))
+    } == registered_tools()
 
 
 def test_every_registered_tool_has_a_scope():
-    assert REGISTERED_TOOLS <= set(TOOL_SCOPES)
+    assert registered_tools() <= set(TOOL_SCOPES)
 
 
 def test_scope_checks_deny_without_token():
-    class FakeComponent:
-        tags: set = set()
-
-    for name in TOOL_SCOPES:
-        (check,) = scope_checks(name)
-        assert check(AuthContext(token=None, component=FakeComponent())) is False
+    for name, scope in TOOL_SCOPES.items():
+        assert has_scope(scope) is False
+        with pytest.raises(ToolError, match=f"Unknown tool: {name}"):
+            require_scope(scope, name, "tool")
 
 
 def test_document_verbs_have_distinct_scopes():

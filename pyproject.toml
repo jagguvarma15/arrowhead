@@ -3,19 +3,36 @@ name = "arrowhead"
 version = "0.2.0"
 description = "The secure data plane for AI agents: a hardened MCP server exposing tools, resources, prompts, and completions with OAuth 2.1, per-resource authorization, SSRF and path-traversal defenses, and content provenance."
 readme = "README.md"
+license = "MIT"
 authors = [
     { name = "Jagadesh Varma Nadimpalli", email = "79473081+jagguvarma15@users.noreply.github.com" }
 ]
+keywords = ["mcp", "model-context-protocol", "ai-agents", "security", "rag"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Typing :: Typed",
+]
 requires-python = ">=3.12"
 dependencies = [
-    "fastmcp>=3.4.6",
+    "mcp>=2.0.0,<3",
     "httpx>=0.28.1",
     "opentelemetry-exporter-otlp-proto-http>=1.44.0",
     "opentelemetry-sdk>=1.44.0",
     "pydantic-settings>=2.14.2",
+    "pyjwt[crypto]>=2.10.1",
     "redis>=8.0.1",
     "regex>=2026.7.19",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jagguvarma15/arrowhead"
+Repository = "https://github.com/jagguvarma15/arrowhead"
+Changelog = "https://github.com/jagguvarma15/arrowhead/blob/main/CHANGELOG.md"
 
 [project.scripts]
 arrowhead = "arrowhead.cli:main"
@@ -36,6 +53,13 @@ sql = [
 postgres = [
     "asyncpg>=0.30.0",
     "pgvector>=0.3.6",
+]
+# Exact symbol extraction for non-Python languages in symbol_map. Optional:
+# without it Python uses the stdlib parser and other languages fall back to
+# a line heuristic, so the base install carries no native parser.
+treesitter = [
+    "tree-sitter>=0.23",
+    "tree-sitter-language-pack>=0.7",
 ]
 
 [build-system]

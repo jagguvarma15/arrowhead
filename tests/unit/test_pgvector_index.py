@@ -1,7 +1,7 @@
 import pytest
-from fastmcp.exceptions import ToolError
 
 from arrowhead.config import get_settings
+from arrowhead.errors import ToolError
 
 POSTGRES = "postgresql+asyncpg://u@h/db"
 
@@ -97,14 +97,67 @@ async def test_gather_chunks_reads_the_corpus(docs):
 
 async def test_embed_attaches_vector_literals():
     get_settings.cache_clear()
-    from arrowhead.connectors.pgvector_index import _embed
+    from arrowhead.connectors.pgvector_index import _content_hash, _embed
 
     prepared = await _embed(
-        [("a.md", 0, "hello"), ("a.md", 1, "world")], get_settings()
+        [
+            ("a.md", 0, "hello", _content_hash("hello")),
+            ("a.md", 1, "world", _content_hash("world")),
+        ],
+        get_settings(),
     )
     assert list(prepared) == ["a.md"]
     assert len(prepared["a.md"]) == 2
-    index, content, literal = prepared["a.md"][0]
+    index, content, literal, digest = prepared["a.md"][0]
     assert index == 0
     assert content == "hello"
     assert literal.startswith("[") and literal.endswith("]")
+    assert digest == _content_hash("hello")
+
+
+class TestPartitionChunks:
+    def test_all_new_chunks_are_embedded(self):
+        from arrowhead.connectors.pgvector_index import _partition_chunks
+
+        gathered = {"a.md": [(0, "one"), (1, "two")]}
+        flat, counts, reused = _partition_chunks(gathered, {})
+        assert [(s, i, c) for s, i, c, _h in flat] == [
+            ("a.md", 0, "one"),
+            ("a.md", 1, "two"),
+        ]
+        assert counts == {"a.md": 2}
+        assert reused == 0
+
+    def test_unchanged_chunks_are_reused_not_embedded(self):
+        from arrowhead.connectors.pgvector_index import (
+            _content_hash,
+            _partition_chunks,
+        )
+
+        gathered = {"a.md": [(0, "same"), (1, "edited")]}
+        existing = {
+            ("a.md", 0): _content_hash("same"),
+            ("a.md", 1): _content_hash("original"),
+        }
+        flat, counts, reused = _partition_chunks(gathered, existing)
+        assert [(s, i) for s, i, _c, _h in flat] == [("a.md", 1)]
+        assert counts == {"a.md": 2}
+        assert reused == 1
+
+    def test_counts_cover_sources_with_nothing_to_write(self):
+        # A fully unchanged source still reports its count, so the write
+        # path can delete rows past the end of a shrunk document.
+        from arrowhead.connectors.pgvector_index import (
+            _content_hash,
+            _partition_chunks,
+        )
+
+        gathered = {"a.md": [(0, "same")]}
+        existing = {
+            ("a.md", 0): _content_hash("same"),
+            ("a.md", 1): _content_hash("stale tail"),
+        }
+        flat, counts, reused = _partition_chunks(gathered, existing)
+        assert flat == []
+        assert counts == {"a.md": 1}
+        assert reused == 1

@@ -8,10 +8,10 @@ than passing them through.
 import json
 
 import pytest
-from fastmcp.exceptions import ToolError
 
 import arrowhead.tools.doc_retrieve as retrieve_module
 from arrowhead.config import get_settings
+from arrowhead.errors import ToolError
 from arrowhead.tools.doc_read import doc_read
 from arrowhead.tools.doc_scan import doc_scan
 from arrowhead.tools.doc_search import doc_search

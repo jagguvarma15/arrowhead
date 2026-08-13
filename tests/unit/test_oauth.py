@@ -1,6 +1,7 @@
 import pytest
 
-from arrowhead.auth.oauth import build_auth_provider
+from arrowhead.auth.oauth import build_auth
+from arrowhead.auth.verifier import JWKSTokenVerifier
 from arrowhead.config import Settings
 
 ISSUER = "https://idp.test"
@@ -80,16 +81,19 @@ async def test_protected_resource_metadata_is_served(auth_client):
         metadata = response.json()
         assert metadata["resource"] == "http://arrowhead.test/mcp"
         assert metadata["authorization_servers"] == [f"{ISSUER}/"]
-        assert "tools:read" in metadata["scopes_supported"]
+        # The scope taxonomy is deliberately not advertised: an
+        # unauthenticated probe learns nothing about the verbs this server
+        # understands, matching the unknown-tool refusal for scoped calls.
+        assert not metadata.get("scopes_supported")
 
 
 def test_auth_disabled_returns_no_provider():
-    assert build_auth_provider(Settings(auth_enabled=False)) is None
+    assert build_auth(Settings(auth_enabled=False)) is None
 
 
 def test_incomplete_auth_config_is_rejected():
     with pytest.raises(ValueError, match="ARROWHEAD_OAUTH_AUDIENCE"):
-        build_auth_provider(
+        build_auth(
             Settings(
                 auth_enabled=True,
                 oauth_issuer=ISSUER,
@@ -99,10 +103,8 @@ def test_incomplete_auth_config_is_rejected():
         )
 
 
-def test_workos_provider_is_built():
-    from fastmcp.server.auth.providers.workos import AuthKitProvider
-
-    provider = build_auth_provider(
+def test_workos_settings_become_a_jwks_verifier():
+    verifier, auth_settings = build_auth(
         Settings(
             auth_enabled=True,
             oauth_provider="workos",
@@ -110,12 +112,21 @@ def test_workos_provider_is_built():
             server_public_url="https://arrowhead.example.com",
         )
     )
-    assert isinstance(provider, AuthKitProvider)
+    assert isinstance(verifier, JWKSTokenVerifier)
+    assert verifier._issuer == "https://arrowhead.authkit.app"
+    assert verifier._jwks_uri == "https://arrowhead.authkit.app/oauth2/jwks"
+    assert str(auth_settings.issuer_url).rstrip("/") == (
+        "https://arrowhead.authkit.app"
+    )
+    assert (
+        str(auth_settings.resource_server_url)
+        == "https://arrowhead.example.com/mcp"
+    )
 
 
 def test_incomplete_workos_config_is_rejected():
     with pytest.raises(ValueError, match="ARROWHEAD_OAUTH_AUTHKIT_DOMAIN"):
-        build_auth_provider(
+        build_auth(
             Settings(
                 auth_enabled=True,
                 oauth_provider="workos",

@@ -6,7 +6,8 @@ tables a policy allows.
 import sqlite3
 
 import pytest
-from fastmcp.exceptions import ToolError
+
+from arrowhead.errors import ToolError
 
 
 @pytest.fixture(autouse=True)

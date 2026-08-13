@@ -60,6 +60,7 @@ def test_a_spec_without_a_scope_is_rejected():
             import_path="arrowhead.tools.calculate:calculate",
             scope="",
             rate_limit_attr="calculate_per_minute",
+            family="core",
             annotations={},
         )
 
@@ -71,6 +72,7 @@ def test_a_spec_without_a_rate_limit_setting_is_rejected():
             import_path="arrowhead.tools.calculate:calculate",
             scope="tools:read",
             rate_limit_attr="",
+            family="core",
             annotations={},
         )
 
@@ -106,10 +108,11 @@ def test_every_resource_and_prompt_loads_a_callable():
 def test_a_resource_without_a_scope_is_rejected():
     with pytest.raises(ValueError):
         ResourceSpec(
-            uri="doc://{path*}",
+            uri="doc://{+path}",
             import_path="arrowhead.resources.documents:read_document_resource",
             scope="",
             rate_limit_attr="resource_read_per_minute",
+            family="docs",
             description="x",
         )
 
@@ -121,5 +124,26 @@ def test_a_prompt_without_a_rate_limit_setting_is_rejected():
             import_path="arrowhead.prompts.library:summarize_document",
             scope="docs:read",
             rate_limit_attr="",
+            family="docs",
             description="x",
         )
+
+
+def test_a_spec_without_a_family_is_rejected():
+    with pytest.raises(ValueError, match="family"):
+        ToolSpec(
+            name="familyless",
+            import_path="arrowhead.tools.calculate:calculate",
+            scope="tools:read",
+            rate_limit_attr="calculate_per_minute",
+            family="",
+            annotations={},
+        )
+
+
+def test_every_catalog_family_is_in_a_profile():
+    from arrowhead.tools.catalog import ALL_FAMILIES, PROFILES
+
+    assert PROFILES["full"] == ALL_FAMILIES
+    for spec in (*TOOL_SPECS, *RESOURCE_SPECS, *PROMPT_SPECS):
+        assert spec.family in ALL_FAMILIES

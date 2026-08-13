@@ -9,8 +9,6 @@ client sees a clean message that never echoes the resource identifier.
 
 from functools import lru_cache
 
-from fastmcp.exceptions import ToolError
-
 from arrowhead.auth.identity import caller_identity
 from arrowhead.authz.policy import (
     KIND_DOCUMENT,
@@ -24,6 +22,7 @@ from arrowhead.authz.policy import (
     build_authorizer,
 )
 from arrowhead.config import current_settings_override, get_settings
+from arrowhead.errors import ToolError
 
 # The noun used in a denial message, chosen from the resource kind so the
 # message reads correctly for a URL or a table without ever echoing the

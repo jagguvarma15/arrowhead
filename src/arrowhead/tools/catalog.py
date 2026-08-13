@@ -36,6 +36,7 @@ class ToolSpec:
     import_path: str
     scope: str
     rate_limit_attr: str
+    family: str
     annotations: dict = field(compare=False)
     icons: tuple = field(default=(), compare=False)
 
@@ -46,6 +47,8 @@ class ToolSpec:
             raise ValueError(
                 f"tool {self.name!r} must declare a rate-limit setting"
             )
+        if not self.family:
+            raise ValueError(f"tool {self.name!r} must declare a family")
 
     def load(self) -> Callable:
         """Import and return the tool's implementation callable."""
@@ -63,7 +66,7 @@ class ResourceSpec:
     """A resource or resource template the server exposes, and its guards.
 
     uri: the resource URI, a template when it contains a {param} such as
-        "doc://{path*}".
+        "doc://{+path}".
     import_path: "module:attribute" locating the handler.
     scope: the OAuth scope a caller must hold to read the resource.
     rate_limit_attr: the Settings attribute holding its per-minute ceiling.
@@ -74,6 +77,7 @@ class ResourceSpec:
     import_path: str
     scope: str
     rate_limit_attr: str
+    family: str
     description: str
     mime_type: str | None = None
     icons: tuple = field(default=(), compare=False)
@@ -85,6 +89,8 @@ class ResourceSpec:
             raise ValueError(
                 f"resource {self.uri!r} must declare a rate-limit setting"
             )
+        if not self.family:
+            raise ValueError(f"resource {self.uri!r} must declare a family")
 
     def load(self) -> Callable:
         return _load_callable(self.import_path)
@@ -104,6 +110,7 @@ class PromptSpec:
     import_path: str
     scope: str
     rate_limit_attr: str
+    family: str
     description: str
     icons: tuple = field(default=(), compare=False)
 
@@ -114,6 +121,8 @@ class PromptSpec:
             raise ValueError(
                 f"prompt {self.name!r} must declare a rate-limit setting"
             )
+        if not self.family:
+            raise ValueError(f"prompt {self.name!r} must declare a family")
 
     def load(self) -> Callable:
         return _load_callable(self.import_path)
@@ -125,6 +134,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.tools.safe_fetch:safe_fetch",
         scope="tools:read",
         rate_limit_attr="safe_fetch_per_minute",
+        family="core",
         annotations={
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -136,6 +146,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.tools.calculate:calculate",
         scope="tools:read",
         rate_limit_attr="calculate_per_minute",
+        family="core",
         annotations={
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -147,6 +158,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.tools.read_file:read_file",
         scope="tools:read",
         rate_limit_attr="read_file_per_minute",
+        family="core",
         annotations={
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -158,6 +170,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.tools.doc_search:doc_search",
         scope="docs:search",
         rate_limit_attr="doc_search_per_minute",
+        family="docs",
         annotations={
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -169,6 +182,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.tools.doc_read:doc_read",
         scope="docs:read",
         rate_limit_attr="doc_read_per_minute",
+        family="docs",
         annotations={
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -180,6 +194,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.tools.doc_retrieve:doc_retrieve",
         scope="docs:read",
         rate_limit_attr="doc_retrieve_per_minute",
+        family="docs",
         annotations={
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -191,6 +206,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.tools.doc_scan:doc_scan",
         scope="docs:scan",
         rate_limit_attr="doc_scan_per_minute",
+        family="docs",
         annotations={
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -202,6 +218,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.tools.doc_write:doc_write",
         scope="docs:write",
         rate_limit_attr="doc_write_per_minute",
+        family="docs",
         annotations={
             "readOnlyHint": False,
             "destructiveHint": True,
@@ -214,6 +231,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.connectors.sql:sql_query",
         scope="sql:read",
         rate_limit_attr="sql_query_per_minute",
+        family="data",
         annotations={
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -225,6 +243,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.connectors.pgvector:vector_search",
         scope="vector:search",
         rate_limit_attr="vector_search_per_minute",
+        family="data",
         annotations={
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -236,6 +255,19 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.connectors.pgvector:vector_query",
         scope="vector:search",
         rate_limit_attr="vector_query_per_minute",
+        family="data",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="hybrid_query",
+        import_path="arrowhead.connectors.hybrid:hybrid_query",
+        scope="vector:search",
+        rate_limit_attr="hybrid_query_per_minute",
+        family="data",
         annotations={
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -247,6 +279,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.connectors.pgvector_index:doc_index",
         scope="vector:write",
         rate_limit_attr="vector_index_per_minute",
+        family="data",
         annotations={
             "readOnlyHint": False,
             "destructiveHint": False,
@@ -255,10 +288,155 @@ TOOL_SPECS: list[ToolSpec] = [
         },
     ),
     ToolSpec(
+        name="code_search",
+        import_path="arrowhead.tools.code_search:code_search",
+        scope="repo:search",
+        rate_limit_attr="code_search_per_minute",
+        family="repo",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="code_read",
+        import_path="arrowhead.tools.code_read:code_read",
+        scope="repo:read",
+        rate_limit_attr="code_read_per_minute",
+        family="repo",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="symbol_map",
+        import_path="arrowhead.tools.symbol_map:symbol_map",
+        scope="repo:read",
+        rate_limit_attr="symbol_map_per_minute",
+        family="repo",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="dependency_graph",
+        import_path="arrowhead.tools.dependency_graph:dependency_graph",
+        scope="repo:read",
+        rate_limit_attr="dependency_graph_per_minute",
+        family="repo",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="code_explain",
+        import_path="arrowhead.tools.code_explain:code_explain",
+        scope="assist:run",
+        rate_limit_attr="code_explain_per_minute",
+        family="assist",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": True,
+        },
+    ),
+    ToolSpec(
+        name="summarize_diff",
+        import_path="arrowhead.tools.summarize_diff:summarize_diff",
+        scope="assist:run",
+        rate_limit_attr="summarize_diff_per_minute",
+        family="assist",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": True,
+        },
+    ),
+    ToolSpec(
+        name="rerank",
+        import_path="arrowhead.tools.rerank:rerank",
+        scope="assist:run",
+        rate_limit_attr="rerank_per_minute",
+        family="assist",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": True,
+        },
+    ),
+    ToolSpec(
+        name="run_snippet",
+        import_path="arrowhead.tools.run_snippet:run_snippet",
+        scope="exec:run",
+        rate_limit_attr="run_snippet_per_minute",
+        family="exec",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "openWorldHint": True,
+        },
+    ),
+    ToolSpec(
+        name="run_tests",
+        import_path="arrowhead.tools.run_tests:run_tests",
+        scope="exec:run",
+        rate_limit_attr="run_tests_per_minute",
+        family="exec",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "openWorldHint": True,
+        },
+    ),
+    ToolSpec(
+        name="pack_context",
+        import_path="arrowhead.tools.pack_context:pack_context",
+        scope="context:read",
+        rate_limit_attr="pack_context_per_minute",
+        family="context",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="workingset_get",
+        import_path="arrowhead.tools.workingset:workingset_get",
+        scope="context:read",
+        rate_limit_attr="workingset_get_per_minute",
+        family="context",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="workingset_update",
+        import_path="arrowhead.tools.workingset:workingset_update",
+        scope="context:write",
+        rate_limit_attr="workingset_update_per_minute",
+        family="context",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
         name="scan_corpus_async",
         import_path="arrowhead.connectors.tasks:scan_corpus_async",
         scope="docs:scan",
         rate_limit_attr="task_start_per_minute",
+        family="tasks",
         annotations={
             "readOnlyHint": False,
             "destructiveHint": False,
@@ -271,6 +449,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.connectors.tasks:task_get",
         scope="tasks:read",
         rate_limit_attr="task_get_per_minute",
+        family="tasks",
         annotations={
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -282,6 +461,7 @@ TOOL_SPECS: list[ToolSpec] = [
         import_path="arrowhead.connectors.tasks:task_update",
         scope="tasks:write",
         rate_limit_attr="task_update_per_minute",
+        family="tasks",
         annotations={
             "readOnlyHint": False,
             "destructiveHint": False,
@@ -294,18 +474,32 @@ TOOL_SPECS: list[ToolSpec] = [
 
 RESOURCE_SPECS: list[ResourceSpec] = [
     ResourceSpec(
+        uri="arrowhead://integrity",
+        import_path="arrowhead.tools.integrity:integrity_report",
+        scope="tools:read",
+        rate_limit_attr="resource_read_per_minute",
+        family="core",
+        description=(
+            "A pinned digest of the enabled tool surface, so a client can "
+            "detect tool-definition changes between sessions."
+        ),
+        mime_type="application/json",
+    ),
+    ResourceSpec(
         uri="docs://index",
         import_path="arrowhead.resources.documents:corpus_index",
         scope="docs:search",
         rate_limit_attr="resource_read_per_minute",
+        family="docs",
         description="The corpus documents the caller is authorized to read.",
         mime_type="application/json",
     ),
     ResourceSpec(
-        uri="doc://{path*}",
+        uri="doc://{+path}",
         import_path="arrowhead.resources.documents:read_document_resource",
         scope="docs:read",
         rate_limit_attr="resource_read_per_minute",
+        family="docs",
         description="One corpus document, sanitized for its format.",
     ),
 ]
@@ -317,6 +511,7 @@ PROMPT_SPECS: list[PromptSpec] = [
         import_path="arrowhead.prompts.library:summarize_document",
         scope="docs:read",
         rate_limit_attr="prompt_get_per_minute",
+        family="docs",
         description="Summarize a corpus document, treating it as untrusted data.",
     ),
     PromptSpec(
@@ -324,6 +519,24 @@ PROMPT_SPECS: list[PromptSpec] = [
         import_path="arrowhead.prompts.library:audit_corpus",
         scope="docs:scan",
         rate_limit_attr="prompt_get_per_minute",
+        family="docs",
         description="Scan the corpus for secrets and PII and summarize findings.",
     ),
 ]
+
+
+# Families group tools that ship together; a profile names the families a
+# deployment exposes. A component outside the active profile is never
+# registered: it costs no context, appears in no listing, and a call to it
+# is unknown. The full profile is the compatibility default and always
+# means every family the catalog declares.
+ALL_FAMILIES: frozenset[str] = frozenset(
+    spec.family for spec in (*TOOL_SPECS, *RESOURCE_SPECS, *PROMPT_SPECS)
+)
+
+PROFILES: dict[str, frozenset[str]] = {
+    "core": frozenset({"core"}),
+    "docs": frozenset({"core", "docs", "data", "tasks"}),
+    "coding": frozenset({"core", "data", "repo", "assist", "exec", "context"}),
+    "full": ALL_FAMILIES,
+}

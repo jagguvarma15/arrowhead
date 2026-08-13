@@ -1,19 +1,14 @@
 import pytest
-from fastmcp.exceptions import ToolError
-from fastmcp.server.elicitation import AcceptedElicitation, DeclinedElicitation
+from mcp.server.elicitation import AcceptedElicitation, DeclinedElicitation
 
+from arrowhead.authz.confirmation import ConfirmOverwrite
 from arrowhead.authz.enforce import get_authorizer
 from arrowhead.config import get_settings
+from arrowhead.errors import ToolError
 from arrowhead.tools.doc_read import doc_read
 from arrowhead.tools.doc_write import doc_write
 
-
-class FakeContext:
-    def __init__(self, result):
-        self._result = result
-
-    async def elicit(self, message, response_type=None):
-        return self._result
+ACCEPTED = AcceptedElicitation(data=ConfirmOverwrite(confirm=True))
 
 
 async def test_write_new_document(docs):
@@ -39,7 +34,19 @@ async def test_overwrite_declined_blocks(docs):
     await doc_write("a.txt", "first")
     with pytest.raises(ToolError, match="declined"):
         await doc_write(
-            "a.txt", "second", overwrite=True, ctx=FakeContext(DeclinedElicitation())
+            "a.txt", "second", overwrite=True, confirmation=DeclinedElicitation()
+        )
+    assert (docs / "a.txt").read_text() == "first"
+
+
+async def test_overwrite_answered_no_blocks(docs):
+    await doc_write("a.txt", "first")
+    with pytest.raises(ToolError, match="declined"):
+        await doc_write(
+            "a.txt",
+            "second",
+            overwrite=True,
+            confirmation=AcceptedElicitation(data=ConfirmOverwrite(confirm=False)),
         )
     assert (docs / "a.txt").read_text() == "first"
 
@@ -47,20 +54,17 @@ async def test_overwrite_declined_blocks(docs):
 async def test_overwrite_accepted_replaces(docs):
     await doc_write("a.txt", "first")
     result = await doc_write(
-        "a.txt",
-        "second",
-        overwrite=True,
-        ctx=FakeContext(AcceptedElicitation(data=None)),
+        "a.txt", "second", overwrite=True, confirmation=ACCEPTED
     )
     assert result["created"] is False
     assert (docs / "a.txt").read_text() == "second"
 
 
 async def test_overwrite_without_confirmation_channel_uses_explicit_flag(docs):
-    # No context (stdio / non-eliciting client): the explicit overwrite flag
-    # stands in as the opt-in.
+    # No resolved confirmation (a client that cannot elicit): the explicit
+    # overwrite flag stands in as the opt-in.
     await doc_write("a.txt", "first")
-    await doc_write("a.txt", "second", overwrite=True, ctx=None)
+    await doc_write("a.txt", "second", overwrite=True)
     assert (docs / "a.txt").read_text() == "second"
 
 
@@ -69,7 +73,7 @@ async def test_confirmation_skipped_when_disabled(docs, monkeypatch):
     get_settings.cache_clear()
     await doc_write("a.txt", "first")
     await doc_write(
-        "a.txt", "second", overwrite=True, ctx=FakeContext(DeclinedElicitation())
+        "a.txt", "second", overwrite=True, confirmation=DeclinedElicitation()
     )
     assert (docs / "a.txt").read_text() == "second"
 
@@ -113,3 +117,51 @@ async def test_cross_subject_write_denied(docs, monkeypatch):
     await doc_write("anonymous/mine.txt", "ok")
     with pytest.raises(ToolError):
         await doc_write("someone-else/theirs.txt", "no")
+
+
+def _answering_client(server, answers: list):
+    """A client whose elicitation callback records questions and answers."""
+    from mcp import Client
+    from mcp.types import ElicitResult
+
+    asked = []
+
+    async def on_elicit(context, params):
+        asked.append(params.message)
+        return ElicitResult(**answers.pop(0))
+
+    return Client(server, elicitation_callback=on_elicit), asked
+
+
+async def test_overwrite_asks_the_connected_client(docs):
+    """The full wire round trip: the framework resolves the confirmation by
+    asking the client, and the answer decides the write."""
+    from arrowhead.server import create_server
+
+    server = create_server()
+    client, asked = _answering_client(
+        server,
+        [
+            {"action": "accept", "content": {"confirm": True}},
+            {"action": "decline"},
+        ],
+    )
+    async with client:
+        await client.call_tool(
+            "doc_write", {"path": "a.txt", "content": "first"}
+        )
+        accepted = await client.call_tool(
+            "doc_write",
+            {"path": "a.txt", "content": "second", "overwrite": True},
+        )
+        assert accepted.is_error is False
+        declined = await client.call_tool(
+            "doc_write",
+            {"path": "a.txt", "content": "third", "overwrite": True},
+        )
+        assert declined.is_error
+        assert "declined" in declined.content[0].text
+
+    assert len(asked) == 2
+    assert all("a.txt" in message for message in asked)
+    assert (docs / "a.txt").read_text() == "second"

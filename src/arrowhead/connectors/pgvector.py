@@ -21,7 +21,6 @@ import math
 import re
 
 import anyio
-from fastmcp.exceptions import ToolError
 
 from arrowhead.authz.enforce import authorize_action
 from arrowhead.authz.policy import ACTION_QUERY, KIND_TABLE, Resource
@@ -38,6 +37,7 @@ from arrowhead.connectors.sql import (
     _wrap_rows,
 )
 from arrowhead.content.provenance import ProvenancedResult
+from arrowhead.errors import ToolError
 
 # A schema-qualified SQL identifier: the only shape a table or column name may
 # take before it is interpolated into a query. Values still come from the

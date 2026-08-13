@@ -4,7 +4,8 @@ connector's docstring claims.
 """
 
 import pytest
-from fastmcp.exceptions import ToolError
+
+from arrowhead.errors import ToolError
 
 _SCHEMA = [
     "DROP TABLE IF EXISTS t",

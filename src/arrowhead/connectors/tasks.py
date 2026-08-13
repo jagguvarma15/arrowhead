@@ -23,12 +23,12 @@ from dataclasses import dataclass
 from typing import TypedDict
 
 import anyio
-from fastmcp.exceptions import ToolError
 
 from arrowhead.auth.identity import caller_identity
 from arrowhead.authz.enforce import authorize_action
 from arrowhead.authz.policy import ACTION_SCAN, KIND_PREFIX, Resource
 from arrowhead.config import get_settings
+from arrowhead.errors import ToolError
 from arrowhead.security.input_validation import (
     ValidationError,
     validate_relative_path,

@@ -1,7 +1,7 @@
 import httpx
 import pytest
-from fastmcp.exceptions import ToolError
 
+from arrowhead.errors import ToolError
 from arrowhead.security.ssrf_guard import BlockedURLError
 from arrowhead.tools.safe_fetch import FetchTooLargeError, fetch_url, safe_fetch
 

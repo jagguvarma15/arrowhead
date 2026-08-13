@@ -7,6 +7,48 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- Migrated the server core onto the official MCP Python SDK (the `mcp` package,
+  version 2), replacing the FastMCP framework. One streamable-HTTP endpoint now
+  serves the sessionless 2026-07-28 protocol natively and handshake-era clients
+  on the same endpoint. The guard chain (tracing, audit, kill switch, rate
+  limit, scope check, exception masking) moved from message middleware into
+  per-component wrappers, so the import-and-call path runs the identical path as
+  an HTTP request; cache hints and argument completion use first-class SDK
+  APIs, and destructive-write confirmation uses the SDK's `Resolve`
+  elicitation. Bearer tokens are verified in-house with pyjwt against the
+  issuer's JWKS or a static key; the `workos` provider derives its issuer and
+  JWKS URI from the AuthKit domain.
+- Toolset profiles (`ARROWHEAD_PROFILE`: `core`, `docs`, `coding`, `full`)
+  select which tool families a deployment exposes, so a connection carries only
+  the tools it needs. A tool outside the active profile is unregistered, costs
+  no context, and is unknown on call.
+- A tool-integrity digest at the `arrowhead://integrity` resource: a sha256 over
+  the semantic surface of every enabled tool, so a client can pin the surface it
+  consented to and detect a later change.
+- Hybrid, code-aware retrieval: `hybrid_query` fuses vector similarity with
+  Postgres full-text rank by reciprocal rank fusion; source files chunk along
+  their structure; and a re-index re-embeds only chunks whose content hash
+  changed, reporting how many were reused. The schema gains `content_hash` and a
+  generated `content_tsv` column.
+- Repository intelligence over a jailed, read-only source tree: `code_search`,
+  `code_read`, `symbol_map` (stdlib parser, an optional tree-sitter extra, or a
+  line heuristic), and `dependency_graph`. Repository resources have their own
+  authorization kinds, separate from corpus documents.
+- Model-backed assist tools over a pluggable completion provider seam
+  (`code_explain`, `summarize_diff`, `rerank`): an Anthropic Messages adapter
+  and an OpenAI-compatible adapter, both posting through the SSRF-guarded,
+  redirect-refusing path. A local model server is reachable only by naming its
+  exact `host:port` in `ARROWHEAD_LLM_INTERNAL_HOSTS`, a deliberate exemption
+  that leaves the public SSRF posture unchanged.
+- Sandboxed execution behind a runner seam (`run_snippet`, `run_tests`): off by
+  default and denied by the default policy, so a deployment opts in twice. The
+  subprocess runner scrubs the environment and bounds CPU, memory, wall time,
+  output, and process count; a container runner adds network and filesystem
+  isolation. Output is secret-scanned and redacted before it leaves.
+- A guarded context packer (`pack_context`) and owner-scoped working sets
+  (`workingset_get`, `workingset_update`): the packer returns a token-budgeted
+  bundle of pinned and retrieved snippets, each re-authorized, secret-scanned,
+  provenance-stamped, and wrapped as untrusted data.
 - Retrieval over the corpus: `doc_index` chunks, embeds, and writes documents
   into a pgvector collection under the caller's tenant, and `vector_query` embeds
   a natural-language query server-side and returns the nearest chunks with their
@@ -24,17 +66,27 @@ All notable changes to this project are recorded here. The format follows
 - Argument completion now passes the same per-caller rate limit, kill switch,
   and audit line as a tool call, closing the one request path that bypassed the
   middleware chain.
-- Application-level alignment with the 2026-07-28 specification: a valid
-  `private` cache scope with `ttlMs` on every cacheable list and read result, a
-  deterministic list order, error-detail masking, and a conformance test that
-  asserts the negotiated protocol version. The wire-level 2026-07-28 changes are
-  deferred until a stable SDK speaks them; see `docs/SECURITY.md`.
+- Wire-level 2026-07-28 support now that the server runs on the official SDK
+  version 2: cacheable results carry native `ttl_ms`/`cache_scope` freshness
+  hints (private scope), the sessionless leg serves bare enveloped requests, and
+  conformance tests pin both the handshake and sessionless legs. This supersedes
+  the earlier application-level-only alignment.
 - A startup refusal to serve HTTP with authentication disabled unless
   `ARROWHEAD_ALLOW_INSECURE_HTTP` is set, and startup validation of the SQL
   dialect and the egress port allowlist.
 
 ### Changed
 
+- The `Arrowhead.call` facade method now returns an `mcp.types.CallToolResult`
+  rather than a FastMCP `ToolResult`; it still raises `ToolError` on a refusal,
+  carrying the guard's own message. `http_app` now returns the SDK's
+  streamable-HTTP ASGI app.
+- The document resource template is `doc://{+path}` (RFC 6570 reserved
+  expansion) rather than `doc://{path*}`, which the SDK's URI matcher does not
+  accept for multi-segment matching.
+- The `fastmcp` dependency is removed; `mcp>=2` and `pyjwt` are direct
+  dependencies. A `treesitter` extra adds exact non-Python symbol extraction and
+  is never imported in the base install.
 - Authorization grants are now kind-aware: outbound fetch is authorized under its
   own `fetch` action, so a policy can deny a caller outbound fetch without
   denying its document reads, and prefix matching is component-bounded so a grant

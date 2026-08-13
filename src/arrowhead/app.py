@@ -1,20 +1,21 @@
 """The Arrowhead application: one hardened path behind two front doors.
 
 Arrowhead can be reached over HTTP as an MCP server or imported and called
-directly from Python. Both go through the same dispatch, so a tool called from
-an import runs the identical tracing, audit, kill-switch, rate-limit, input
-validation, per-resource authorization, and content-provenance path as a tool
-called over the wire.
+directly from Python. Every component is registered behind its guard
+wrapper, so a tool called from an import runs the identical tracing,
+audit, kill-switch, rate-limit, input validation, per-resource
+authorization, and content-provenance path as a tool called over the wire.
 
     app = Arrowhead()
     with app.as_principal("service:etl", {"docs:read"}):
         result = await app.call("doc_read", {"path": "notes.md"})
 
-A tool call that has no caller is anonymous and every scoped tool is denied, so
-the guarded path is the default whichever door a call comes through.
+A tool call that has no caller is anonymous and every scoped tool is
+denied, so the guarded path is the default whichever door a call comes
+through.
 
-Pass settings to run inside a host process with its own configuration rather
-than the process environment:
+Pass settings to run inside a host process with its own configuration
+rather than the process environment:
 
     app = Arrowhead(settings=Settings(docs_root="/data/corpus"))
 """
@@ -23,18 +24,16 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from contextlib import AbstractContextManager, nullcontext
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from arrowhead.auth.principal import as_principal
-from arrowhead.config import Settings, use_settings
+from arrowhead.config import Settings, get_settings, use_settings
+from arrowhead.errors import ToolError
 from arrowhead.server import create_server
 
 if TYPE_CHECKING:
-    from fastmcp import FastMCP
-    from fastmcp.prompts.prompt import PromptResult
-    from fastmcp.resources.resource import ResourceResult
-    from fastmcp.tools.tool import ToolResult
-    from mcp.types import Tool
+    from mcp.server import MCPServer
+    from mcp.types import CallToolResult, GetPromptResult, Tool
 
 
 class Arrowhead:
@@ -47,7 +46,7 @@ class Arrowhead:
 
     def __init__(self, *, settings: Settings | None = None) -> None:
         self._settings = settings
-        self._server: FastMCP | None = None
+        self._server: MCPServer | None = None
 
     def _activate(self) -> AbstractContextManager:
         if self._settings is not None:
@@ -55,8 +54,8 @@ class Arrowhead:
         return nullcontext()
 
     @property
-    def server(self) -> FastMCP:
-        """The underlying FastMCP server, built on first access."""
+    def server(self) -> MCPServer:
+        """The underlying SDK server, built on first access."""
         if self._server is None:
             with self._activate():
                 self._server = create_server()
@@ -74,21 +73,43 @@ class Arrowhead:
 
     async def call(
         self, name: str, arguments: dict | None = None
-    ) -> ToolResult:
+    ) -> CallToolResult:
         """Call a tool through the full hardened path and return its result.
 
-        A tool that refuses or fails raises ToolError, exactly as it does over
-        the wire.
+        A tool that refuses or fails raises ToolError carrying the same
+        deliberate message a wire caller receives.
         """
+        from mcp.server.mcpserver.exceptions import ToolError as SDKToolError
+
         with self._activate():
-            return await self.server.call_tool(name, arguments or {})
+            try:
+                result = await self.server.call_tool(name, arguments or {})
+            except SDKToolError as exc:
+                # The SDK prefixes the refusal text with the tool name;
+                # strip it so the raised message is the guard's own words.
+                message = str(exc).removeprefix(
+                    f"Error executing tool {name}: "
+                )
+                raise ToolError(message) from exc
+        if getattr(result, "is_error", False):
+            raise ToolError(_error_text(result))
+        return result
 
     async def list_tools(self) -> list[Tool]:
         """List the tools visible to the current caller."""
-        with self._activate():
-            return list(await self.server.list_tools())
+        from arrowhead.runtime.guards import Guards, visible_tools
 
-    async def read_resource(self, uri: str) -> ResourceResult:
+        with self._activate():
+            tools = await self.server.list_tools()
+            settings = get_settings()
+            guards = Guards(
+                enforce_scopes=settings.auth_enabled,
+                rate_limiter=None,
+                disabled=frozenset(settings.disabled_tool_set()),
+            )
+            return visible_tools(tools, guards)
+
+    async def read_resource(self, uri: str) -> Any:
         """Read a resource through the full hardened path.
 
         A read that is unauthorized or fails raises, exactly as it does over
@@ -99,10 +120,10 @@ class Arrowhead:
 
     async def get_prompt(
         self, name: str, arguments: dict | None = None
-    ) -> PromptResult:
+    ) -> GetPromptResult:
         """Render a prompt through the full hardened path."""
         with self._activate():
-            return await self.server.render_prompt(name, arguments or {})
+            return await self.server.get_prompt(name, arguments or {})
 
     async def complete(self, argument_name: str, value: str = "") -> list[str]:
         """Return authorized completion values for an argument.
@@ -121,6 +142,23 @@ class Arrowhead:
         return list(result.values) if result is not None else []
 
     def http_app(self, **kwargs):
-        """Return the ASGI application for serving the server over HTTP."""
+        """Return the ASGI application for serving the server over HTTP.
+
+        Transport security defaults from the active settings, exactly as
+        the standalone server applies it.
+        """
+        from arrowhead.server import transport_security
+
         with self._activate():
-            return self.server.http_app(**kwargs)
+            kwargs.setdefault(
+                "transport_security", transport_security(get_settings())
+            )
+            return self.server.streamable_http_app(**kwargs)
+
+
+def _error_text(result) -> str:
+    for block in getattr(result, "content", []) or []:
+        text = getattr(block, "text", None)
+        if text:
+            return text
+    return "tool call failed"

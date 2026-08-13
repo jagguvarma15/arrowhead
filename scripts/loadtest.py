@@ -5,7 +5,10 @@ many concurrent requests, the health endpoints stay green, and rate
 limiting engages under a burst. Point it at a local stack where auth is
 off (docker compose up), or pass a base URL.
 
-    uv run python scripts/loadtest.py [BASE_URL] [TOTAL_CALLS]
+    uv run python scripts/loadtest.py [BASE_URL] [TOTAL_CALLS] [--modern]
+
+Pass --modern to drive the sessionless 2026-07-28 leg (bare requests carrying
+the reserved _meta envelope) instead of the handshake-era leg.
 """
 
 import asyncio
@@ -15,11 +18,10 @@ import time
 
 import httpx
 
-CALL = {
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/call",
-    "params": {"name": "calculate", "arguments": {"expression": "2 * (3 + 4)"}},
+MODERN_VERSION = "2026-07-28"
+MODERN_ENVELOPE = {
+    "io.modelcontextprotocol/protocolVersion": MODERN_VERSION,
+    "io.modelcontextprotocol/clientCapabilities": {},
 }
 HEADERS = {
     "Accept": "application/json, text/event-stream",
@@ -27,10 +29,21 @@ HEADERS = {
 }
 
 
-async def one_call(client: httpx.AsyncClient, base: str) -> tuple[str, float]:
+def _call(modern: bool) -> dict:
+    params = {"name": "calculate", "arguments": {"expression": "2 * (3 + 4)"}}
+    if modern:
+        params["_meta"] = MODERN_ENVELOPE
+    return {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params}
+
+
+async def one_call(
+    client: httpx.AsyncClient, base: str, payload: dict
+) -> tuple[str, float]:
     start = time.perf_counter()
     try:
-        response = await client.post(f"{base}/mcp", json=CALL, headers=HEADERS)
+        response = await client.post(
+            f"{base}/mcp", json=payload, headers=HEADERS
+        )
     except httpx.HTTPError:
         return "connection_error", (time.perf_counter() - start) * 1000
     elapsed_ms = (time.perf_counter() - start) * 1000
@@ -51,7 +64,9 @@ def _mcp_result(response: httpx.Response) -> dict:
     return {}
 
 
-async def main(base: str, total: int) -> int:
+async def main(base: str, total: int, modern: bool) -> int:
+    payload = _call(modern)
+    print(f"leg: {'modern (2026-07-28)' if modern else 'handshake-era'}")
     async with httpx.AsyncClient(timeout=30) as client:
         for path in ("/health", "/ready"):
             response = await client.get(f"{base}{path}")
@@ -61,7 +76,7 @@ async def main(base: str, total: int) -> int:
                 return 1
 
         results = await asyncio.gather(
-            *(one_call(client, base) for _ in range(total))
+            *(one_call(client, base, payload) for _ in range(total))
         )
 
     statuses = [status for status, _ in results]
@@ -89,8 +104,8 @@ def _pct(sorted_values: list[float], fraction: float) -> float:
 
 
 if __name__ == "__main__":
-    base_url = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000").rstrip(
-        "/"
-    )
-    total_calls = int(sys.argv[2]) if len(sys.argv) > 2 else 200
-    raise SystemExit(asyncio.run(main(base_url, total_calls)))
+    args = [a for a in sys.argv[1:] if a != "--modern"]
+    use_modern = "--modern" in sys.argv[1:]
+    base_url = (args[0] if args else "http://localhost:8000").rstrip("/")
+    total_calls = int(args[1]) if len(args) > 1 else 200
+    raise SystemExit(asyncio.run(main(base_url, total_calls, use_modern)))

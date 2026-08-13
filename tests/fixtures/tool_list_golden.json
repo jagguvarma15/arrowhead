@@ -1,0 +1,503 @@
+{
+  "prompts": [
+    {
+      "description": "Scan the corpus for secrets and PII and summarize findings.",
+      "name": "audit_corpus"
+    },
+    {
+      "description": "Summarize a corpus document, treating it as untrusted data.",
+      "name": "summarize_document"
+    }
+  ],
+  "resource_templates": [
+    {
+      "description": "One corpus document, sanitized for its format.",
+      "mime_type": "text/plain",
+      "uri_template": "doc://{+path}"
+    }
+  ],
+  "resources": [
+    {
+      "description": "A pinned digest of the enabled tool surface, so a client can detect tool-definition changes between sessions.",
+      "mime_type": "application/json",
+      "uri": "arrowhead://integrity"
+    },
+    {
+      "description": "The corpus documents the caller is authorized to read.",
+      "mime_type": "application/json",
+      "uri": "docs://index"
+    }
+  ],
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Evaluate an arithmetic expression with + - * / and parentheses.\nExample: calculate(expression=\"2 * (3 + 4)\") returns 14.",
+      "has_output_schema": true,
+      "input_properties": [
+        "expression"
+      ],
+      "input_required": [
+        "expression"
+      ],
+      "name": "calculate",
+      "scope": "tools:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Explain a repository file or line range through the configured model\nbackend; end_line 0 means to the end. The explanation returns as\nuntrusted data. Example: code_explain(path=\"src/app.py\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "end_line",
+        "path",
+        "start_line"
+      ],
+      "input_required": [
+        "path"
+      ],
+      "name": "code_explain",
+      "scope": "assist:run"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read a repository file by relative path, optionally sliced to a line\nrange; end_line 0 means to the end. Returns sanitized text wrapped with\nprovenance. Example: code_read(path=\"src/app.py\", start_line=10,\nend_line=40).",
+      "has_output_schema": true,
+      "input_properties": [
+        "end_line",
+        "path",
+        "start_line"
+      ],
+      "input_required": [
+        "path"
+      ],
+      "name": "code_read",
+      "scope": "repo:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Search repository files for a query and return bounded, sanitized\nsnippets with line numbers. Literal by default; set use_regex when\nenabled. Example: code_search(query=\"TODO\", path_prefix=\"src/\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "path_prefix",
+        "query",
+        "use_regex"
+      ],
+      "input_required": [
+        "query"
+      ],
+      "name": "code_search",
+      "scope": "repo:search"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Map the imports between the Python modules under a repository prefix,\nmarking dependencies outside it as external.\nExample: dependency_graph(path_prefix=\"src/\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "path_prefix"
+      ],
+      "input_required": [],
+      "name": "dependency_graph",
+      "scope": "repo:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Index corpus documents into a pgvector collection so vector_query can\nretrieve them. Each document under the path prefix is chunked, embedded, and\nwritten under the caller's tenant; a re-index replaces a document's existing\nchunks and skips unchanged ones without re-embedding them.\nExample: doc_index(collection=\"doc_chunks\", path_prefix=\"handbook/\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "collection",
+        "path_prefix"
+      ],
+      "input_required": [
+        "collection"
+      ],
+      "name": "doc_index",
+      "scope": "vector:write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read a JSON, Markdown, or text document from the corpus by relative\npath. Returns sanitized content wrapped with provenance. Example:\ndoc_read(path=\"notes/todo.md\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "path"
+      ],
+      "input_required": [
+        "path"
+      ],
+      "name": "doc_read",
+      "scope": "docs:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Retrieve a JSON, Markdown, or text document from a public URL,\nSSRF-guarded and sanitized. Returns wrapped, untrusted content.\nExample: doc_retrieve(url=\"https://example.com/data.json\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "url"
+      ],
+      "input_required": [
+        "url"
+      ],
+      "name": "doc_retrieve",
+      "scope": "docs:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Scan corpus documents for secrets and PII and return redacted\nfindings (type, location, and a hashed placeholder, never the raw\nvalue). Example: doc_scan(path_prefix=\"exports/\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "path_prefix"
+      ],
+      "input_required": [],
+      "name": "doc_scan",
+      "scope": "docs:scan"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Search corpus documents for a query and return bounded, sanitized\nsnippets. Literal by default; set use_regex when enabled. Example:\ndoc_search(query=\"deadline\", path_prefix=\"notes/\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "path_prefix",
+        "query",
+        "use_regex"
+      ],
+      "input_required": [
+        "query"
+      ],
+      "name": "doc_search",
+      "scope": "docs:search"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Write a JSON, Markdown, or text document to the corpus. Creates a new\ndocument; set overwrite to replace an existing one, which asks for\nconfirmation. Example: doc_write(path=\"notes/todo.md\", content=\"# Todo\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "content",
+        "overwrite",
+        "path"
+      ],
+      "input_required": [
+        "content",
+        "path"
+      ],
+      "name": "doc_write",
+      "scope": "docs:write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Retrieve corpus chunks by fused vector and keyword relevance, scoped\nto the caller's tenant. The query is embedded server-side and also run\nas a full-text search; the two rankings merge by reciprocal rank\nfusion, so exact identifiers and paraphrases both surface. Example:\nhybrid_query(collection=\"doc_chunks\", query=\"refund window\", k=5).",
+      "has_output_schema": true,
+      "input_properties": [
+        "collection",
+        "k",
+        "query"
+      ],
+      "input_required": [
+        "collection",
+        "query"
+      ],
+      "name": "hybrid_query",
+      "scope": "vector:search"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Assemble a token-budgeted context bundle for a query: a working set's\npinned items first, then retrieved snippets, each secret-scanned,\nprovenance-stamped, and framed as untrusted data. Example:\npack_context(query=\"how are refunds issued?\", working_set=\"refunds\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "query",
+        "token_budget",
+        "working_set"
+      ],
+      "input_required": [
+        "query"
+      ],
+      "name": "pack_context",
+      "scope": "context:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read a text file from the server's sandbox directory by relative\npath. Example: read_file(path=\"notes/readme.txt\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "path"
+      ],
+      "input_required": [
+        "path"
+      ],
+      "name": "read_file",
+      "scope": "tools:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Rank candidate passages by relevance to a query through the\nconfigured model backend and return their indices in order.\nExample: rerank(query=\"refund policy\", candidates=[\"...\", \"...\"]).",
+      "has_output_schema": true,
+      "input_properties": [
+        "candidates",
+        "query",
+        "top_k"
+      ],
+      "input_required": [
+        "candidates",
+        "query"
+      ],
+      "name": "rerank",
+      "scope": "assist:run"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Fetch a public http or https URL and return its status, content\ntype, and body text. Private, loopback, link-local, and cloud metadata\naddresses are refused. Example: safe_fetch(url=\"https://example.com/\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "url"
+      ],
+      "input_required": [
+        "url"
+      ],
+      "name": "safe_fetch",
+      "scope": "tools:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Start a background secrets-and-PII scan of the corpus (or a path prefix)\nand return a task handle immediately. Poll it with task_get(task_id=...) and\ncancel it with task_update(task_id=..., action=\"cancel\"). Example:\nscan_corpus_async(path_prefix=\"exports/\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "path_prefix"
+      ],
+      "input_required": [],
+      "name": "scan_corpus_async",
+      "scope": "docs:scan"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Run a read-only SQL query and return its rows as untrusted data. Only a\nsingle SELECT may run; every referenced table is authorized, and results\nare capped. Bind values with named parameters. Example: sql_query(query=\n\"select id, email from users where org = :org\", params={\"org\": \"acme\"}).",
+      "has_output_schema": true,
+      "input_properties": [
+        "params",
+        "query"
+      ],
+      "input_required": [
+        "query"
+      ],
+      "name": "sql_query",
+      "scope": "sql:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Summarize a unified diff through the configured model backend; the\nsummary returns as untrusted data.\nExample: summarize_diff(diff=\"--- a/x.py\\n+++ b/x.py\\n@@ ...\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "diff"
+      ],
+      "input_required": [
+        "diff"
+      ],
+      "name": "summarize_diff",
+      "scope": "assist:run"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List the functions, classes, and types defined under a repository\nprefix, with their line spans. Example: symbol_map(path_prefix=\"src/\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "path_prefix"
+      ],
+      "input_required": [],
+      "name": "symbol_map",
+      "scope": "repo:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Return the status of a task you started, and its result once it has\nfinished. A task id you do not own is reported as not found. Example:\ntask_get(task_id=\"3f2a...\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "task_id"
+      ],
+      "input_required": [
+        "task_id"
+      ],
+      "name": "task_get",
+      "scope": "tasks:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Update a task you started. The only action is \"cancel\", which stops a\nrunning task. A task id you do not own is reported as not found. Example:\ntask_update(task_id=\"3f2a...\", action=\"cancel\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "action",
+        "task_id"
+      ],
+      "input_required": [
+        "action",
+        "task_id"
+      ],
+      "name": "task_update",
+      "scope": "tasks:write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Find the corpus chunks most similar to a natural-language query, scoped\nto the caller's tenant. The query is embedded server-side, only an\nallow-listed collection is searched, and each result carries its source\ndocument and chunk index as a citation. Example:\nvector_query(collection=\"doc_chunks\", query=\"how do refunds work?\", k=5).",
+      "has_output_schema": true,
+      "input_properties": [
+        "collection",
+        "k",
+        "query"
+      ],
+      "input_required": [
+        "collection",
+        "query"
+      ],
+      "name": "vector_query",
+      "scope": "vector:search"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Find the nearest rows in a pgvector collection to a query embedding,\nscoped to the caller's tenant. Only an allow-listed collection may be\nsearched, the tenant is the caller, and results are capped. Example:\nvector_search(collection=\"documents\", embedding=[0.1, 0.2, ...], k=5).",
+      "has_output_schema": true,
+      "input_properties": [
+        "collection",
+        "embedding",
+        "k"
+      ],
+      "input_required": [
+        "collection",
+        "embedding"
+      ],
+      "name": "vector_search",
+      "scope": "vector:search"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read the contents of a named working set you own. A set you do not\nown is reported as not found. Example: workingset_get(name=\"bug\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "name"
+      ],
+      "input_required": [
+        "name"
+      ],
+      "name": "workingset_get",
+      "scope": "context:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Pin, unpin, or clear references in a named working set. Each item is\n{\"kind\": \"doc\"|\"repo_file\", \"identifier\": ..., \"note\": ...}; pinned items\nare authorized as you pin them. Example:\nworkingset_update(name=\"bug\", action=\"pin\",\nitems=[{\"kind\": \"repo_file\", \"identifier\": \"src/app.py\"}]).",
+      "has_output_schema": true,
+      "input_properties": [
+        "action",
+        "items",
+        "name"
+      ],
+      "input_required": [
+        "action",
+        "name"
+      ],
+      "name": "workingset_update",
+      "scope": "context:write"
+    }
+  ]
+}

@@ -17,10 +17,27 @@ services:
       ARROWHEAD_REDIS_URL: redis://redis:6379/0
       ARROWHEAD_JAIL_ROOT: /app/sandbox
       ARROWHEAD_DOCS_ROOT: /app/documents
+      # Expose only the families this stack serves: core, docs, coding, or
+      # full (the default). A smaller profile keeps the tool list lean.
+      # ARROWHEAD_PROFILE: full
       # The SQL and pgvector connectors run against the bundled Postgres. Set
       # ARROWHEAD_PGVECTOR_COLLECTIONS to a table you have created before the
       # vector_search tool will run.
       ARROWHEAD_SQL_DSN: postgresql+asyncpg://arrow:arrow@postgres:5432/arrow
+      # Sandboxed execution is off by default. To enable it, uncomment the
+      # flag AND grant the execute action in the authorization policy; prefer
+      # the container runner in a real deployment for network and filesystem
+      # isolation the subprocess runner does not provide.
+      # ARROWHEAD_EXEC_ENABLED: "true"
+      # ARROWHEAD_EXEC_RUNNER: container
+      # ARROWHEAD_EXEC_CONTAINER_IMAGE: python:3.12-slim
+      # ARROWHEAD_EXEC_TEST_COMMAND: python -m pytest -q
+      # To back the assist tools with a local model, point the endpoint at it
+      # and name its host:port so the SSRF guard admits the internal address.
+      # ARROWHEAD_LLM_PROVIDER: openai
+      # ARROWHEAD_LLM_ENDPOINT: http://host.docker.internal:11434/v1/chat/completions
+      # ARROWHEAD_LLM_MODEL: llama3
+      # ARROWHEAD_LLM_INTERNAL_HOSTS: host.docker.internal:11434
     volumes:
       # Path is relative to this compose file, so the repo-root sandbox
       # sits one level up.

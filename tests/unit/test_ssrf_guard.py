@@ -142,3 +142,61 @@ async def test_nat64_resolved_metadata_rejected(make_resolver):
 async def test_malformed_port_is_a_refusal(url, make_resolver):
     with pytest.raises(BlockedURLError):
         await resolve_pinned(url, getaddrinfo=make_resolver("93.184.216.34"))
+
+
+class TestTrustedInternal:
+    """The deliberate internal exemption admits exactly its named pairs."""
+
+    async def test_exact_pair_is_admitted_and_pinned(self, make_resolver):
+        target = await resolve_pinned(
+            "http://127.0.0.1:11434/v1/chat/completions",
+            getaddrinfo=make_resolver("127.0.0.1"),
+            trusted_internal=frozenset({"127.0.0.1:11434"}),
+        )
+        assert str(target.address) == "127.0.0.1"
+        assert target.port == 11434
+
+    async def test_a_different_port_on_the_same_host_stays_blocked(
+        self, make_resolver
+    ):
+        with pytest.raises(BlockedURLError):
+            await resolve_pinned(
+                "http://127.0.0.1:6379/",
+                getaddrinfo=make_resolver("127.0.0.1"),
+                trusted_internal=frozenset({"127.0.0.1:11434"}),
+            )
+
+    async def test_a_different_host_on_the_same_port_stays_blocked(
+        self, make_resolver
+    ):
+        with pytest.raises(BlockedURLError):
+            await resolve_pinned(
+                "http://10.0.0.9:11434/",
+                getaddrinfo=make_resolver("10.0.0.9"),
+                trusted_internal=frozenset({"127.0.0.1:11434"}),
+            )
+
+    async def test_without_the_set_loopback_remains_refused(
+        self, make_resolver
+    ):
+        with pytest.raises(BlockedURLError):
+            await resolve_pinned(
+                "http://127.0.0.1:11434/",
+                getaddrinfo=make_resolver("127.0.0.1"),
+            )
+
+    async def test_the_scheme_check_still_applies(self, make_resolver):
+        with pytest.raises(BlockedURLError):
+            await resolve_pinned(
+                "gopher://127.0.0.1:11434/",
+                getaddrinfo=make_resolver("127.0.0.1"),
+                trusted_internal=frozenset({"127.0.0.1:11434"}),
+            )
+
+    def test_the_fetch_tools_never_pass_the_parameter(self):
+        import inspect
+
+        from arrowhead.tools import doc_retrieve, safe_fetch
+
+        for module in (safe_fetch, doc_retrieve):
+            assert "trusted_internal" not in inspect.getsource(module)

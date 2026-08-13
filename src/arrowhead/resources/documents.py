@@ -15,7 +15,6 @@ a model.
 import json
 
 import anyio
-from fastmcp.exceptions import ToolError
 
 from arrowhead.authz.enforce import authorize_action, get_authorizer
 from arrowhead.authz.policy import (
@@ -29,6 +28,7 @@ from arrowhead.config import get_settings
 from arrowhead.content.json_safe import JSONSafetyError
 from arrowhead.content.render import render_document
 from arrowhead.content.text_safe import TextSafetyError
+from arrowhead.errors import ToolError
 from arrowhead.security.input_validation import ValidationError, validate_document_path
 from arrowhead.store.document_store import DocumentStoreError, build_document_store
 

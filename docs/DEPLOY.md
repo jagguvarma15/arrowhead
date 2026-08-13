@@ -18,8 +18,16 @@ managed Redis.
 
 1. In the WorkOS dashboard, create or open an AuthKit project.
 2. Note the AuthKit domain (e.g. `https://your-project.authkit.app`).
-3. AuthKit serves the OAuth metadata and supports the Dynamic Client
-   Registration MCP clients use, so no manual client registration is needed.
+3. AuthKit serves the OAuth metadata MCP clients discover, so no manual client
+   registration is needed on this server's side.
+
+The `workos` provider is configuration sugar over the standard JWKS path: it
+derives the issuer (`https://<domain>`) and the JWKS URI
+(`https://<domain>/oauth2/jwks`) from the AuthKit domain, and the server
+verifies tokens with its in-house verifier exactly as it would for any OAuth 2.1
+issuer. AuthKit-specific conveniences beyond token verification and RFC 9728
+discovery are not part of this path; pointing `jwt` at the same issuer and JWKS
+URI is equivalent.
 
 ## 2. Deploy on Render
 
@@ -99,9 +107,37 @@ docker compose -f deploy/docker-compose.yml down -v
 It reports health, readiness, latency percentiles, and how many calls were
 rate-limited under the burst.
 
+## Choosing a profile
+
+Set `ARROWHEAD_PROFILE` to expose only the tool families the deployment serves:
+`core`, `docs`, `coding`, or `full` (the default). A smaller profile keeps the
+tool list that rides in every connected model's context lean.
+
+## Enabling sandboxed execution
+
+The `exec` family is doubly gated. Set `ARROWHEAD_EXEC_ENABLED=true` and grant
+the `execute` action in the authorization policy; both are required. Prefer the
+container runner in production: set `ARROWHEAD_EXEC_RUNNER=container` and
+`ARROWHEAD_EXEC_CONTAINER_IMAGE` to an image with the tools a snippet needs. The
+container runner adds `--network none` and a read-only root filesystem that the
+default subprocess runner cannot; the subprocess runner bounds resources but
+leaves network and filesystem reads to OS permissions. `run_tests` also needs
+`ARROWHEAD_EXEC_TEST_COMMAND` set to the argv that runs the suite inside the
+copied subtree.
+
+## Fronting a local model
+
+To back the assist tools with a local model server (Ollama, vLLM, LM Studio),
+set `ARROWHEAD_LLM_PROVIDER=openai`, point `ARROWHEAD_LLM_ENDPOINT` at its
+OpenAI-compatible chat-completions URL, and name its exact `host:port` in
+`ARROWHEAD_LLM_INTERNAL_HOSTS` so the SSRF guard admits it. For a hosted model,
+use `ARROWHEAD_LLM_PROVIDER=anthropic` (or `openai` against a cloud endpoint)
+and supply `ARROWHEAD_LLM_API_KEY` out of band.
+
 ## Scaling note
 
 A persistent disk attaches to a single instance, so the reference deployment
 runs one instance and the write corpus stays consistent. Scaling the request
-tier to many replicas means moving the corpus behind object storage; see the
-roadmap in the plan.
+tier to many replicas means moving the corpus behind object storage. The task
+and working-set registries are likewise in-process today; a shared backend (the
+rate limiter already uses Redis) is the seam for a multi-instance deployment.

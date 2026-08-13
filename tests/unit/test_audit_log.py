@@ -1,7 +1,7 @@
 import json
 import logging
 
-from fastmcp import Client
+from mcp import Client
 
 from arrowhead.observability.audit_log import describe_arguments, describe_resource
 
@@ -44,13 +44,11 @@ class TestDescribeArguments:
         assert describe_arguments(None) == {}
 
 
-async def test_one_line_per_call_without_raw_values(
-    caplog, stdio_transport, jail
-):
+async def test_one_line_per_call_without_raw_values(caplog, jail):
     from arrowhead.server import create_server
 
     with caplog.at_level(logging.INFO, logger="arrowhead.audit"):
-        async with Client(create_server()) as client:
+        async with Client(create_server(), raise_exceptions=True) as client:
             await client.call_tool("calculate", {"expression": "2 * (3 + 4)"})
 
     records = audit_records(caplog)
@@ -64,17 +62,13 @@ async def test_one_line_per_call_without_raw_values(
     assert "2 * (3 + 4)" not in caplog.text
 
 
-async def test_refused_jail_escape_never_logs_the_path(
-    caplog, stdio_transport, jail
-):
+async def test_refused_jail_escape_never_logs_the_path(caplog, jail):
     from arrowhead.server import create_server
 
     with caplog.at_level(logging.INFO, logger="arrowhead.audit"):
         async with Client(create_server()) as client:
             result = await client.call_tool(
-                "read_file",
-                {"path": "../../etc/passwd"},
-                raise_on_error=False,
+                "read_file", {"path": "../../etc/passwd"}
             )
             assert result.is_error
 
@@ -86,28 +80,35 @@ async def test_refused_jail_escape_never_logs_the_path(
 
 
 async def test_authorization_denial_is_audited_distinctly(caplog):
-    from fastmcp import FastMCP
+    """An authorization denial is recorded as a refusal tagged with its
+    error type, distinct from a validation refusal, and never echoes the
+    resource value. The guard wrapper is exercised directly, as the
+    registration path applies it."""
+    import pytest
 
     from arrowhead.authz.enforce import AuthorizationError
-    from arrowhead.observability.audit_log import AuditLogMiddleware
+    from arrowhead.runtime.guards import Guards, guard_tool
 
-    mcp = FastMCP("audit-authz", middleware=[AuditLogMiddleware()])
-
-    @mcp.tool
-    def guarded(target: str) -> str:
+    async def guarded_impl(target: str) -> str:
         raise AuthorizationError("not authorized for this document")
 
+    class Spec:
+        name = "guarded"
+        scope = "docs:read"
+
+        def load(self):
+            return guarded_impl
+
+    tool = guard_tool(
+        Spec(),
+        Guards(enforce_scopes=False, rate_limiter=None, disabled=frozenset()),
+    )
+
     with caplog.at_level(logging.INFO, logger="arrowhead.audit"):
-        async with Client(mcp) as client:
-            result = await client.call_tool(
-                "guarded", {"target": "secret/plan.txt"}, raise_on_error=False
-            )
-            assert result.is_error
+        with pytest.raises(AuthorizationError):
+            await tool(target="secret/plan.txt")
 
     record = audit_records(caplog)[0]
-    # An authorization denial is recorded as a refusal tagged with its
-    # error type, distinct from a validation refusal, and never echoes the
-    # resource value.
     assert record["status"] == "refused"
     assert record["error_type"] == "AuthorizationError"
     assert "secret/plan.txt" not in caplog.text

@@ -14,7 +14,7 @@ they do not inflate the list that rides in every context.
 import inspect
 import json
 
-from fastmcp import Client
+from mcp import Client
 
 PER_TOOL_TOKEN_BUDGET = 260
 CHARS_PER_TOKEN = 4
@@ -24,16 +24,21 @@ def estimate_tokens(text: str) -> int:
     return -(-len(text) // CHARS_PER_TOKEN)
 
 
-async def _list_tools(stdio_transport):
+async def _list_tools():
     from arrowhead.server import create_server
 
-    async with Client(create_server()) as client:
-        return (await client.list_tools_mcp()).tools
+    async with Client(create_server(), raise_exceptions=True) as client:
+        return (await client.list_tools()).tools
 
 
-async def test_tool_schemas_fit_the_per_tool_budget(stdio_transport):
-    tools = await _list_tools(stdio_transport)
-    serialized = json.dumps([tool.model_dump(exclude_none=True) for tool in tools])
+async def test_tool_schemas_fit_the_per_tool_budget():
+    tools = await _list_tools()
+    serialized = json.dumps(
+        [
+            tool.model_dump(by_alias=True, exclude_none=True)
+            for tool in tools
+        ]
+    )
     average = estimate_tokens(serialized) / len(tools)
     assert average < PER_TOOL_TOKEN_BUDGET, (
         f"tool schemas average ~{average:.0f} tokens each, "
@@ -41,16 +46,16 @@ async def test_tool_schemas_fit_the_per_tool_budget(stdio_transport):
     )
 
 
-async def test_every_tool_publishes_an_output_schema(stdio_transport):
+async def test_every_tool_publishes_an_output_schema():
     # Structured output: every tool declares the shape of its result so a
     # client receives typed data rather than only a text blob.
-    tools = await _list_tools(stdio_transport)
+    tools = await _list_tools()
     for tool in tools:
-        assert tool.outputSchema is not None, tool.name
+        assert tool.output_schema is not None, tool.name
 
 
-async def test_every_tool_description_includes_an_example(stdio_transport):
-    tools = await _list_tools(stdio_transport)
+async def test_every_tool_description_includes_an_example():
+    tools = await _list_tools()
     for tool in tools:
         assert "Example:" in (tool.description or ""), tool.name
 

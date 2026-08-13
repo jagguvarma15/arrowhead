@@ -9,7 +9,17 @@ supports and give it the command or URL below.
 The examples run the server from a source checkout with `uv`. Replace
 `/path/to/arrowhead` with your checkout, or swap `uv run python -m
 arrowhead.server` for `arrowhead serve` once the package is installed on the
-client's PATH.
+client's PATH (`uvx arrowhead serve` once it is published).
+
+Set `ARROWHEAD_PROFILE` to expose only the tool families a client needs: a
+coding host wants `coding`, a documentation service `docs`, and the default
+`full` exposes everything. A smaller profile means fewer tools in the client's
+context. The `exec` family stays hidden until `ARROWHEAD_EXEC_ENABLED` is set,
+even under the `coding` or `full` profile.
+
+A client that pins the tool surface it consented to can read the
+`arrowhead://integrity` resource, which returns a sha256 digest of the enabled
+tools, and compare it each session to detect a later change.
 
 ## Claude Desktop
 
@@ -123,10 +133,21 @@ authorization server to complete an OAuth 2.1 flow against. Arrowhead issues no
 tokens itself; it only verifies them. The caller sees only the tools whose scope
 its token holds.
 
+A client that speaks the sessionless 2026-07-28 protocol sends its requests with
+the reserved `_meta` envelope (protocol version and client capabilities) and no
+`initialize` handshake; a handshake-era client sends `initialize` first. The
+same endpoint serves both, so a raw HTTP client only needs to match the era it
+implements. Sending the `MCP-Protocol-Version: 2026-07-28` header without the
+`_meta` envelope is an invalid request, not a silent downgrade.
+
 ## A note on scopes
 
 Over HTTP the token's scopes decide which tools are visible. The retrieval tools
-need `vector:search` (for `vector_query`) and `vector:write` (for `doc_index`),
-and `doc_index` additionally requires the `ingest` action to be granted in the
-per-resource policy, which the default policy denies. See the README for the
-full scope list and `docs/SECURITY.md` for the authorization model.
+need `vector:search` (for `vector_query` and `hybrid_query`) and `vector:write`
+(for `doc_index`), and `doc_index` additionally requires the `ingest` action to
+be granted in the per-resource policy, which the default policy denies. The
+coding families use `repo:read`/`repo:search` for the repository tools,
+`assist:run` for the model-backed helpers, `exec:run` plus the `execute` action
+for sandboxed execution, and `context:read`/`context:write` for the packer and
+working sets. See the README for the full scope list and `docs/SECURITY.md` for
+the authorization model.

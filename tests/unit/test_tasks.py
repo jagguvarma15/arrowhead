@@ -3,7 +3,6 @@ the work runs in the background, and only the owner can poll or cancel it.
 """
 
 import pytest
-from fastmcp.exceptions import ToolError
 
 from arrowhead.auth.principal import as_principal
 from arrowhead.connectors.tasks import (
@@ -14,6 +13,7 @@ from arrowhead.connectors.tasks import (
     task_get,
     task_update,
 )
+from arrowhead.errors import ToolError
 
 
 async def test_task_runs_to_completion_and_returns_the_result(docs):
