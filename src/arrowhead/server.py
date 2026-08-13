@@ -111,25 +111,28 @@ def main() -> None:
 
         app = mcp.streamable_http_app(
             stateless_http=settings.stateless_http,
-            transport_security=_transport_security(settings),
+            transport_security=transport_security(settings),
+            host=settings.host,
         )
         uvicorn.run(app, host=settings.host, port=settings.port)
     else:
         mcp.run()
 
 
-def _transport_security(settings):
+def transport_security(settings):
     """Host and origin validation, enabled only when lists are configured.
 
-    With neither list set the check stays off, preserving the deployment
-    posture documented for platform proxies, which rewrite Host freely.
+    With neither list set the check is explicitly off, preserving the
+    documented deployment posture: platform proxies rewrite Host freely,
+    and TLS plus platform routing are the perimeter. The explicit object
+    also keeps the SDK from guessing a policy from the bind address.
     """
+    from mcp.server.transport_security import TransportSecuritySettings
+
     hosts = settings.allowed_hosts_list()
     origins = settings.allowed_origins_list()
     if not hosts and not origins:
-        return None
-    from mcp.server.transport_security import TransportSecuritySettings
-
+        return TransportSecuritySettings(enable_dns_rebinding_protection=False)
     return TransportSecuritySettings(
         allowed_hosts=hosts, allowed_origins=origins
     )
