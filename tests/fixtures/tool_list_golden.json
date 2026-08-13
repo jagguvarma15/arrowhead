@@ -13,7 +13,7 @@
     {
       "description": "One corpus document, sanitized for its format.",
       "mime_type": "text/plain",
-      "uri_template": "doc://{path*}"
+      "uri_template": "doc://{+path}"
     }
   ],
   "resources": [
