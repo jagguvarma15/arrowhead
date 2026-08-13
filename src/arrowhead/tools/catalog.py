@@ -372,6 +372,30 @@ TOOL_SPECS: list[ToolSpec] = [
         },
     ),
     ToolSpec(
+        name="run_snippet",
+        import_path="arrowhead.tools.run_snippet:run_snippet",
+        scope="exec:run",
+        rate_limit_attr="run_snippet_per_minute",
+        family="exec",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "openWorldHint": True,
+        },
+    ),
+    ToolSpec(
+        name="run_tests",
+        import_path="arrowhead.tools.run_tests:run_tests",
+        scope="exec:run",
+        rate_limit_attr="run_tests_per_minute",
+        family="exec",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "openWorldHint": True,
+        },
+    ),
+    ToolSpec(
         name="scan_corpus_async",
         import_path="arrowhead.connectors.tasks:scan_corpus_async",
         scope="docs:scan",
