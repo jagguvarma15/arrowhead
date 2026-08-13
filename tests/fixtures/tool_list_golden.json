@@ -49,6 +49,59 @@
     {
       "annotations": {
         "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read a repository file by relative path, optionally sliced to a line\nrange; end_line 0 means to the end. Returns sanitized text wrapped with\nprovenance. Example: code_read(path=\"src/app.py\", start_line=10,\nend_line=40).",
+      "has_output_schema": true,
+      "input_properties": [
+        "end_line",
+        "path",
+        "start_line"
+      ],
+      "input_required": [
+        "path"
+      ],
+      "name": "code_read",
+      "scope": "repo:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Search repository files for a query and return bounded, sanitized\nsnippets with line numbers. Literal by default; set use_regex when\nenabled. Example: code_search(query=\"TODO\", path_prefix=\"src/\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "path_prefix",
+        "query",
+        "use_regex"
+      ],
+      "input_required": [
+        "query"
+      ],
+      "name": "code_search",
+      "scope": "repo:search"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Map the imports between the Python modules under a repository prefix,\nmarking dependencies outside it as external.\nExample: dependency_graph(path_prefix=\"src/\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "path_prefix"
+      ],
+      "input_required": [],
+      "name": "dependency_graph",
+      "scope": "repo:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false,
         "readOnlyHint": false
@@ -241,6 +294,21 @@
       ],
       "name": "sql_query",
       "scope": "sql:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List the functions, classes, and types defined under a repository\nprefix, with their line spans. Example: symbol_map(path_prefix=\"src/\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "path_prefix"
+      ],
+      "input_required": [],
+      "name": "symbol_map",
+      "scope": "repo:read"
     },
     {
       "annotations": {
