@@ -4,11 +4,12 @@ denied.
 """
 
 import pytest
-from fastmcp import FastMCP
-from fastmcp.server.dependencies import get_access_token
+from mcp.server import MCPServer
+from mcp.server.auth.middleware.auth_context import get_access_token
 
 from arrowhead.auth.identity import caller_identity
 from arrowhead.auth.principal import as_principal
+from arrowhead.runtime.guards import Guards, visible_tools
 from arrowhead.tools.registry import register_tools
 
 
@@ -40,23 +41,33 @@ def test_a_principal_needs_a_subject():
             pass
 
 
+def _scope_enforced_server() -> tuple[MCPServer, Guards]:
+    guards = Guards(
+        enforce_scopes=True, rate_limiter=None, disabled=frozenset()
+    )
+    mcp = MCPServer("principal-check")
+    register_tools(mcp, guards=guards)
+    return mcp, guards
+
+
 async def test_scoped_tools_are_hidden_without_a_principal():
-    mcp = FastMCP("principal-check")
-    register_tools(mcp)
-    assert await mcp.list_tools() == []
+    mcp, guards = _scope_enforced_server()
+    assert visible_tools(await mcp.list_tools(), guards) == []
 
 
 async def test_a_principal_sees_only_the_tools_its_scopes_allow():
-    mcp = FastMCP("principal-check")
-    register_tools(mcp)
+    mcp, guards = _scope_enforced_server()
     with as_principal("service:reader", {"docs:read"}):
-        visible = {tool.name for tool in await mcp.list_tools()}
+        visible = {
+            tool.name for tool in visible_tools(await mcp.list_tools(), guards)
+        }
     assert visible == {"doc_read", "doc_retrieve"}
 
 
 async def test_a_broader_principal_sees_more_tools():
-    mcp = FastMCP("principal-check")
-    register_tools(mcp)
+    mcp, guards = _scope_enforced_server()
     with as_principal("service:ops", {"tools:read", "docs:write"}):
-        visible = {tool.name for tool in await mcp.list_tools()}
+        visible = {
+            tool.name for tool in visible_tools(await mcp.list_tools(), guards)
+        }
     assert visible == {"safe_fetch", "calculate", "read_file", "doc_write"}
