@@ -10,6 +10,7 @@ so this module only assembles: the verifier, the guard state, the two
 observe-only middlewares, the cache hints, and the health routes.
 """
 
+import logging
 from contextlib import asynccontextmanager
 
 from mcp.server import CacheHint, MCPServer
@@ -23,6 +24,8 @@ from arrowhead.observability.tracing import capture_meta_middleware
 from arrowhead.runtime.guards import Guards, listing_middleware
 from arrowhead.security.rate_limit import build_rate_limiter
 from arrowhead.tools.registry import register_components
+
+logger = logging.getLogger("arrowhead.server")
 
 
 def create_server() -> MCPServer:
@@ -42,6 +45,18 @@ def create_server() -> MCPServer:
 
     @asynccontextmanager
     async def lifespan(server):
+        # One startup line pins the tool surface being served, so an
+        # operator can corroborate a client's integrity report against
+        # what this process actually exposed.
+        from arrowhead.tools.integrity import catalog_digest, enabled_tool_surface
+
+        surface = await enabled_tool_surface()
+        logger.info(
+            "tool_catalog_digest=%s tools=%d profile=%s",
+            catalog_digest(surface),
+            len(surface),
+            settings.profile,
+        )
         try:
             yield {}
         finally:
