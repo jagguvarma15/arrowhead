@@ -12,9 +12,15 @@ from arrowhead.runtime.guards import Guards, visible_tools
 from arrowhead.tools.catalog import PROMPT_SPECS, RESOURCE_SPECS, TOOL_SPECS
 from arrowhead.tools.registry import register_tools
 
-# Derived from the catalog so this stays correct as tools are added: every tool
-# the catalog declares is registered and must be visible without auth.
-REGISTERED_TOOLS = {spec.name for spec in TOOL_SPECS}
+
+def registered_tools() -> set[str]:
+    """The tools register_tools actually registers for the current settings:
+    every family the active profile exposes, which excludes the exec family
+    until it is enabled. Computed per call so it tracks the test's env."""
+    from arrowhead.tools.registry import active_families
+
+    families = active_families()
+    return {spec.name for spec in TOOL_SPECS if spec.family in families}
 
 
 def _guards(enforce: bool) -> Guards:
@@ -35,11 +41,11 @@ async def test_tools_hidden_from_anonymous_only_when_auth_is_enforced():
     # registers and lists, and the per-resource policy remains the guard.
     assert {
         tool.name for tool in visible_tools(tools, _guards(False))
-    } == REGISTERED_TOOLS
+    } == registered_tools()
 
 
 def test_every_registered_tool_has_a_scope():
-    assert REGISTERED_TOOLS <= set(TOOL_SCOPES)
+    assert registered_tools() <= set(TOOL_SCOPES)
 
 
 def test_scope_checks_deny_without_token():
