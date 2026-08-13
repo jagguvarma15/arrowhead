@@ -8,6 +8,10 @@ read another's rows even by asking. The query embedding is bound as a
 parameter, results are capped, string cells are sanitized, and the payload is
 wrapped as untrusted data.
 
+vector_query is the text-facing counterpart: it embeds the caller's query
+server-side through the configured provider and returns the nearest chunks, each
+carrying its source document and chunk index as a citation.
+
 The connection pool, the dialect-derived read-only transaction, and the
 server-side statement timeout are shared with the SQL connector, so a vector
 search runs under the same read-only, time-bounded guarantees as a SQL read.
@@ -80,6 +84,43 @@ async def vector_search(
     return _wrap_rows(rows, columns, truncated, source=f"pgvector:{collection}")
 
 
+async def vector_query(
+    collection: str, query: str, k: int = 10
+) -> ProvenancedResult:
+    """Find the corpus chunks most similar to a natural-language query, scoped
+    to the caller's tenant. The query is embedded server-side, only an
+    allow-listed collection is searched, and each result carries its source
+    document and chunk index as a citation. Example:
+    vector_query(collection="doc_chunks", query="how do refunds work?", k=5).
+    """
+    settings = get_settings()
+    if not settings.sql_dsn:
+        raise ToolError("the vector connector is not configured")
+    dialect = settings.sql_dialect or _dialect_from_dsn(settings.sql_dsn)
+    if dialect != "postgres":
+        raise ToolError("vector search requires a PostgreSQL database")
+    if not isinstance(query, str) or not query.strip():
+        raise ToolError("query must be a non-empty string")
+    collection = _validate_collection(collection, settings)
+    k = _bounded_k(k, settings)
+
+    # Authorize before embedding so an unauthorized caller cannot trigger an
+    # outbound embedding request. The tenant is the caller, never an argument.
+    tenant = authorize_action(
+        ACTION_QUERY, Resource(kind=KIND_TABLE, identifier=collection.lower())
+    )
+    literal = await _embed_query(query, settings)
+
+    try:
+        rows, columns, truncated = await _search_chunks(
+            collection, literal, k, tenant, settings
+        )
+    except SqlConnectorError as exc:
+        raise ToolError(str(exc)) from exc
+
+    return _wrap_rows(rows, columns, truncated, source=f"pgvector:{collection}")
+
+
 def _validate_collection(collection: str, settings) -> str:
     allowed = settings.pgvector_collection_set()
     if not allowed:
@@ -124,6 +165,20 @@ def _safe_identifier(name: str) -> str:
     return name
 
 
+async def _embed_query(query: str, settings) -> str:
+    from arrowhead.embeddings.base import EmbeddingError
+    from arrowhead.embeddings.factory import build_embedding_provider
+
+    provider = build_embedding_provider(settings)
+    try:
+        vectors = await provider.embed([query])
+    except EmbeddingError as exc:
+        raise ToolError(f"could not embed the query: {exc}") from exc
+    if not vectors:
+        raise ToolError("the embedding provider returned no vector")
+    return _validate_embedding(vectors[0], settings)
+
+
 async def _search(collection, literal, k, tenant, settings):
     text = _import_sqlalchemy()
 
@@ -158,4 +213,35 @@ async def _search(collection, literal, k, tenant, settings):
                     result = await conn.stream(text(query), bind)
                     # Reuse the SQL connector's row collector so the byte,
                     # row, column, and per-cell caps stay identical here.
+                    return await _collect(result, settings)
+
+
+async def _search_chunks(collection, literal, k, tenant, settings):
+    text = _import_sqlalchemy()
+
+    id_col = _safe_identifier(settings.pgvector_id_column)
+    source_col = _safe_identifier(settings.pgvector_source_column)
+    chunk_col = _safe_identifier(settings.pgvector_chunk_index_column)
+    content_col = _safe_identifier(settings.pgvector_content_column)
+    tenant_col = _safe_identifier(settings.pgvector_tenant_column)
+    embedding_col = _safe_identifier(settings.pgvector_embedding_column)
+    query = (
+        f"SELECT {id_col}, {source_col}, {chunk_col}, "  # noqa: S608
+        f"{content_col}, {embedding_col} <=> (:q)::vector AS distance "
+        f"FROM {collection} "
+        f"WHERE {tenant_col} = :tenant "
+        f"ORDER BY {embedding_col} <=> (:q)::vector "
+        "LIMIT :k"
+    )
+    bind = {"q": literal, "tenant": tenant, "k": k}
+
+    guards = _session_guards("postgres", settings)
+    with _connector_errors():
+        engine = _get_engine(settings.sql_dsn)
+        with anyio.fail_after(settings.sql_timeout_seconds + _TIMEOUT_GRACE_SECONDS):
+            async with engine.connect() as conn:
+                async with conn.begin():
+                    for statement in guards:
+                        await conn.execute(text(statement))
+                    result = await conn.stream(text(query), bind)
                     return await _collect(result, settings)

@@ -2,6 +2,7 @@ import pytest
 
 from arrowhead.authz.policy import (
     ACTION_FETCH,
+    ACTION_INGEST,
     ACTION_READ,
     ACTION_SCAN,
     ACTION_SEARCH,
@@ -19,6 +20,26 @@ from arrowhead.config import Settings
 
 def doc(path):
     return Resource(kind="document", identifier=path)
+
+
+def table(name):
+    return Resource(kind="table", identifier=name)
+
+
+def test_default_policy_denies_ingest():
+    policy = build_authorizer(Settings(auth_enabled=True))
+    assert not policy.authorize(
+        "alice", ACTION_INGEST, table("doc_chunks")
+    ).allowed
+
+
+def test_a_grant_allows_ingest_on_its_table():
+    policy = parse_policy(
+        '{"grants": [{"subject": "*", "actions": ["ingest"], '
+        '"kinds": ["table"], "prefix": "doc_chunks"}]}'
+    )
+    assert policy.authorize("alice", ACTION_INGEST, table("doc_chunks")).allowed
+    assert not policy.authorize("alice", ACTION_INGEST, table("other")).allowed
 
 
 def test_default_deny_when_no_grant_matches():

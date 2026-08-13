@@ -29,6 +29,10 @@ ACTION_QUERY = "query"
 # so a policy can deny outbound fetch to a caller without also denying its
 # document reads. A wildcard action still covers it.
 ACTION_FETCH = "fetch"
+# Writing document chunks into a vector store is its own verb, so a policy can
+# grant retrieval ingestion independently of document writes. It is absent from
+# the default grants, so ingestion is denied until a deployment allows it.
+ACTION_INGEST = "ingest"
 
 # A grant prefix may contain this token, expanded to the requesting
 # subject before matching, so one rule can scope every caller to its own

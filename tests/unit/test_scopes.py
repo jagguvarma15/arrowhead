@@ -3,25 +3,12 @@ from fastmcp.server.auth import AuthContext
 from fastmcp.server.context import _current_transport
 
 from arrowhead.auth.scopes import TOOL_SCOPES, scope_checks, supported_scopes
+from arrowhead.tools.catalog import PROMPT_SPECS, RESOURCE_SPECS, TOOL_SPECS
 from arrowhead.tools.registry import register_tools
 
-# The tools register_tools currently wires up. TOOL_SCOPES also carries
-# entries for tools added in later phases, so registered tools are a subset.
-REGISTERED_TOOLS = {
-    "safe_fetch",
-    "calculate",
-    "read_file",
-    "doc_search",
-    "doc_read",
-    "doc_retrieve",
-    "doc_scan",
-    "doc_write",
-    "sql_query",
-    "vector_search",
-    "scan_corpus_async",
-    "task_get",
-    "task_update",
-}
+# Derived from the catalog so this stays correct as tools are added: every tool
+# the catalog declares is registered and must be visible on stdio.
+REGISTERED_TOOLS = {spec.name for spec in TOOL_SPECS}
 
 
 async def test_tools_hidden_without_credentials_and_visible_on_stdio():
@@ -61,15 +48,10 @@ def test_document_verbs_have_distinct_scopes():
     assert TOOL_SCOPES["doc_write"] == "docs:write"
 
 
-def test_supported_scopes_deduplicated_and_sorted():
-    assert supported_scopes() == [
-        "docs:read",
-        "docs:scan",
-        "docs:search",
-        "docs:write",
-        "sql:read",
-        "tasks:read",
-        "tasks:write",
-        "tools:read",
-        "vector:search",
-    ]
+def test_supported_scopes_are_the_catalog_scopes_deduplicated_and_sorted():
+    scopes = supported_scopes()
+    assert scopes == sorted(set(scopes))
+    expected = {spec.scope for spec in TOOL_SPECS}
+    expected |= {spec.scope for spec in RESOURCE_SPECS}
+    expected |= {spec.scope for spec in PROMPT_SPECS}
+    assert set(scopes) == expected

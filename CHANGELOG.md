@@ -7,6 +7,15 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- Retrieval over the corpus: `doc_index` chunks, embeds, and writes documents
+  into a pgvector collection under the caller's tenant, and `vector_query` embeds
+  a natural-language query server-side and returns the nearest chunks with their
+  source and chunk index as citations. Embeddings come from a pluggable provider
+  (a stdlib deterministic default, or an OpenAI-compatible HTTP endpoint reached
+  through the SSRF guard and the egress allowlist). Ingestion uses a write
+  credential separate from the read-only DSN (`ARROWHEAD_VECTOR_WRITE_DSN`) and a
+  dedicated `ingest` action the default policy denies. See
+  `deploy/pgvector_schema.sql`, `docs/INTEGRATIONS.md`, and `examples/docs_rag/`.
 - Handle-based asynchronous tasks following the 2026-07-28 stateless pattern:
   `scan_corpus_async` starts a background corpus scan and returns a server-minted
   handle, `task_get` polls it, and `task_update` cancels it. A task is owned by
