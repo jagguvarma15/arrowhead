@@ -31,13 +31,19 @@ from arrowhead.tools.catalog import (
 
 
 def active_families() -> frozenset[str]:
-    """The families the configured profile exposes.
+    """The families the configured profile and feature flags expose.
 
     A component outside them is never registered: it costs no context,
     appears in no listing, and calling it reports it unknown, exactly
-    like a tool that does not exist.
+    like a tool that does not exist. The exec family is gated a second
+    time behind exec_enabled, so a coding-profile deployment that has not
+    turned execution on never exposes the run tools.
     """
-    return PROFILES[get_settings().profile]
+    settings = get_settings()
+    families = PROFILES[settings.profile]
+    if not settings.exec_enabled:
+        families = families - {"exec"}
+    return families
 
 
 def register_components(mcp: MCPServer, *, guards: Guards) -> None:
