@@ -15,17 +15,34 @@ token to check them against.
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
+from arrowhead.config import get_settings
 from arrowhead.runtime.guards import (
     Guards,
     guard_prompt,
     guard_resource,
     guard_tool,
 )
-from arrowhead.tools.catalog import PROMPT_SPECS, RESOURCE_SPECS, TOOL_SPECS
+from arrowhead.tools.catalog import (
+    PROFILES,
+    PROMPT_SPECS,
+    RESOURCE_SPECS,
+    TOOL_SPECS,
+)
+
+
+def active_families() -> frozenset[str]:
+    """The families the configured profile exposes.
+
+    A component outside them is never registered: it costs no context,
+    appears in no listing, and calling it reports it unknown, exactly
+    like a tool that does not exist.
+    """
+    return PROFILES[get_settings().profile]
 
 
 def register_components(mcp: MCPServer, *, guards: Guards) -> None:
-    """Register every tool, resource, and prompt, and the completion handler."""
+    """Register every in-profile tool, resource, and prompt, and the
+    completion handler."""
     register_tools(mcp, guards=guards)
     register_resources(mcp, guards=guards)
     register_prompts(mcp, guards=guards)
@@ -33,7 +50,10 @@ def register_components(mcp: MCPServer, *, guards: Guards) -> None:
 
 
 def register_tools(mcp: MCPServer, *, guards: Guards) -> None:
+    families = active_families()
     for spec in TOOL_SPECS:
+        if spec.family not in families:
+            continue
         mcp.add_tool(
             guard_tool(spec, guards),
             name=spec.name,
@@ -43,7 +63,10 @@ def register_tools(mcp: MCPServer, *, guards: Guards) -> None:
 
 
 def register_resources(mcp: MCPServer, *, guards: Guards) -> None:
+    families = active_families()
     for spec in RESOURCE_SPECS:
+        if spec.family not in families:
+            continue
         mcp.resource(
             spec.uri,
             description=spec.description,
@@ -53,7 +76,10 @@ def register_resources(mcp: MCPServer, *, guards: Guards) -> None:
 
 
 def register_prompts(mcp: MCPServer, *, guards: Guards) -> None:
+    families = active_families()
     for spec in PROMPT_SPECS:
+        if spec.family not in families:
+            continue
         mcp.prompt(
             name=spec.name,
             description=spec.description,
