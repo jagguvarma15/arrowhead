@@ -4,10 +4,10 @@ and adopts the current principal.
 """
 
 import pytest
-from fastmcp.exceptions import ToolError
 
 from arrowhead import Arrowhead, Settings
 from arrowhead.auth.identity import caller_identity
+from arrowhead.errors import ToolError
 
 
 async def test_call_runs_a_tool_and_returns_its_result():
