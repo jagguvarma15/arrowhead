@@ -232,6 +232,29 @@ TOOL_SPECS: list[ToolSpec] = [
         },
     ),
     ToolSpec(
+        name="vector_query",
+        import_path="arrowhead.connectors.pgvector:vector_query",
+        scope="vector:search",
+        rate_limit_attr="vector_query_per_minute",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="doc_index",
+        import_path="arrowhead.connectors.pgvector_index:doc_index",
+        scope="vector:write",
+        rate_limit_attr="vector_index_per_minute",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
         name="scan_corpus_async",
         import_path="arrowhead.connectors.tasks:scan_corpus_async",
         scope="docs:scan",
