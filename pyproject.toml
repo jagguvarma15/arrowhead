@@ -8,11 +8,12 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "fastmcp>=3.4.6",
+    "mcp>=2.0.0,<3",
     "httpx>=0.28.1",
     "opentelemetry-exporter-otlp-proto-http>=1.44.0",
     "opentelemetry-sdk>=1.44.0",
     "pydantic-settings>=2.14.2",
+    "pyjwt[crypto]>=2.10.1",
     "redis>=8.0.1",
     "regex>=2026.7.19",
 ]
