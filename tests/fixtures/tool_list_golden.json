@@ -160,6 +160,26 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
+      "description": "Retrieve corpus chunks by fused vector and keyword relevance, scoped\nto the caller's tenant. The query is embedded server-side and also run\nas a full-text search; the two rankings merge by reciprocal rank\nfusion, so exact identifiers and paraphrases both surface. Example:\nhybrid_query(collection=\"doc_chunks\", query=\"refund window\", k=5).",
+      "has_output_schema": true,
+      "input_properties": [
+        "collection",
+        "k",
+        "query"
+      ],
+      "input_required": [
+        "collection",
+        "query"
+      ],
+      "name": "hybrid_query",
+      "scope": "vector:search"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
       "description": "Read a text file from the server's sandbox directory by relative\npath. Example: read_file(path=\"notes/readme.txt\").",
       "has_output_schema": true,
       "input_properties": [
