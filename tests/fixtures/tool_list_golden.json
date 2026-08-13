@@ -252,6 +252,25 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
+      "description": "Assemble a token-budgeted context bundle for a query: a working set's\npinned items first, then retrieved snippets, each secret-scanned,\nprovenance-stamped, and framed as untrusted data. Example:\npack_context(query=\"how are refunds issued?\", working_set=\"refunds\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "query",
+        "token_budget",
+        "working_set"
+      ],
+      "input_required": [
+        "query"
+      ],
+      "name": "pack_context",
+      "scope": "context:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
       "description": "Read a text file from the server's sandbox directory by relative\npath. Example: read_file(path=\"notes/readme.txt\").",
       "has_output_schema": true,
       "input_properties": [
@@ -442,6 +461,43 @@
       ],
       "name": "vector_search",
       "scope": "vector:search"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read the contents of a named working set you own. A set you do not\nown is reported as not found. Example: workingset_get(name=\"bug\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "name"
+      ],
+      "input_required": [
+        "name"
+      ],
+      "name": "workingset_get",
+      "scope": "context:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Pin, unpin, or clear references in a named working set. Each item is\n{\"kind\": \"doc\"|\"repo_file\", \"identifier\": ..., \"note\": ...}; pinned items\nare authorized as you pin them. Example:\nworkingset_update(name=\"bug\", action=\"pin\",\nitems=[{\"kind\": \"repo_file\", \"identifier\": \"src/app.py\"}]).",
+      "has_output_schema": true,
+      "input_properties": [
+        "action",
+        "items",
+        "name"
+      ],
+      "input_required": [
+        "action",
+        "name"
+      ],
+      "name": "workingset_update",
+      "scope": "context:write"
     }
   ]
 }
