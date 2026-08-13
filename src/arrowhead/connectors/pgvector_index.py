@@ -14,7 +14,6 @@ import hashlib
 from typing import TypedDict
 
 import anyio
-from arrowhead.errors import ToolError
 
 from arrowhead.authz.enforce import authorize_action, get_authorizer
 from arrowhead.authz.policy import (
@@ -44,6 +43,7 @@ from arrowhead.content.render import render_document
 from arrowhead.content.text_safe import TextSafetyError
 from arrowhead.embeddings.base import EmbeddingError
 from arrowhead.embeddings.factory import build_embedding_provider
+from arrowhead.errors import ToolError
 from arrowhead.security.input_validation import (
     ValidationError,
     validate_relative_path,
