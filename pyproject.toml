@@ -3,8 +3,19 @@ name = "arrowhead"
 version = "0.2.0"
 description = "The secure data plane for AI agents: a hardened MCP server exposing tools, resources, prompts, and completions with OAuth 2.1, per-resource authorization, SSRF and path-traversal defenses, and content provenance."
 readme = "README.md"
+license = "MIT"
 authors = [
     { name = "Jagadesh Varma Nadimpalli", email = "79473081+jagguvarma15@users.noreply.github.com" }
+]
+keywords = ["mcp", "model-context-protocol", "ai-agents", "security", "rag"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Typing :: Typed",
 ]
 requires-python = ">=3.12"
 dependencies = [
@@ -17,6 +28,11 @@ dependencies = [
     "redis>=8.0.1",
     "regex>=2026.7.19",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jagguvarma15/arrowhead"
+Repository = "https://github.com/jagguvarma15/arrowhead"
+Changelog = "https://github.com/jagguvarma15/arrowhead/blob/main/CHANGELOG.md"
 
 [project.scripts]
 arrowhead = "arrowhead.cli:main"
