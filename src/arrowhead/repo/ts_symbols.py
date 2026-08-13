@@ -22,7 +22,9 @@ _LANGUAGES = {
         {
             "function_declaration": "function",
             "method_declaration": "function",
-            "type_declaration": "type",
+            # The name of a Go type lives on the spec inside the
+            # declaration, so the spec is the named node to map.
+            "type_spec": "type",
         },
     ),
     ".java": (
