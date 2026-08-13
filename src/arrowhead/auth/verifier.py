@@ -119,7 +119,8 @@ class JWKSTokenVerifier:
         self._keys = keys
 
     async def _fetch_jwks(self, client: httpx.AsyncClient) -> dict:
-        assert self._jwks_uri is not None
+        if self._jwks_uri is None:
+            raise ValueError("no JWKS URI configured")
         response = await client.get(self._jwks_uri)
         response.raise_for_status()
         document = response.json()
