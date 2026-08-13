@@ -92,7 +92,12 @@ async def _call(fn, args, kwargs):
 
 
 def _masked(component: str):
-    """Decorator applying the exception-masking boundary around a wrapper."""
+    """Decorator applying the exception-masking boundary around a wrapper.
+
+    A ToolError carries deliberate refusal text and passes through; the SDK
+    turns it into an error result whose message is exactly that text.
+    Anything else is logged server-side and replaced.
+    """
 
     def apply(inner):
         @functools.wraps(inner)
@@ -104,6 +109,37 @@ def _masked(component: str):
             except Exception:
                 logger.exception("unhandled error in %s", component)
                 raise ToolError(_MASKED_ERROR) from None
+
+        return boundary
+
+    return apply
+
+
+def _masked_rpc(component: str):
+    """The masking boundary for prompt and resource handlers.
+
+    Their SDK paths rewrap ordinary exceptions into generic internal
+    errors, so a refusal's text survives only as a protocol error: a
+    ToolError is translated into an MCPError carrying the same message,
+    and everything else is logged and replaced.
+    """
+    from mcp.shared.exceptions import MCPError
+    from mcp.types import INTERNAL_ERROR
+
+    def apply(inner):
+        @functools.wraps(inner)
+        async def boundary(*args, **kwargs):
+            try:
+                return await inner(*args, **kwargs)
+            except MCPError:
+                raise
+            except ToolError as exc:
+                raise MCPError(code=INTERNAL_ERROR, message=str(exc)) from None
+            except Exception:
+                logger.exception("unhandled error in %s", component)
+                raise MCPError(
+                    code=INTERNAL_ERROR, message=_MASKED_ERROR
+                ) from None
 
         return boundary
 
@@ -137,6 +173,10 @@ def guard_tool(spec, guards: Guards):
                     require_scope(spec.scope, spec.name, "tool")
                 return await _call(fn, args, kwargs)
 
+    # The docstring becomes the wire description; dedent it so the schema a
+    # client sees is the deliberate text, not indentation.
+    if fn.__doc__:
+        guarded.__doc__ = inspect.cleandoc(fn.__doc__)
     return _masked(spec.name)(guarded)
 
 
@@ -158,7 +198,7 @@ def guard_resource(spec, guards: Guards):
                 require_scope(spec.scope, uri, "resource")
             return await _call(fn, args, kwargs)
 
-    return _masked(spec.uri)(guarded)
+    return _masked_rpc(spec.uri)(guarded)
 
 
 def guard_prompt(spec, guards: Guards):
@@ -182,7 +222,7 @@ def guard_prompt(spec, guards: Guards):
                 require_scope(spec.scope, spec.name, "prompt")
             return await _call(fn, args, kwargs)
 
-    return _masked(spec.name)(guarded)
+    return _masked_rpc(spec.name)(guarded)
 
 
 def _expand_uri(template: str, kwargs: dict) -> str:
@@ -210,66 +250,44 @@ def listing_middleware(guards: Guards):
     """A server middleware filtering listings by kill switch and scope.
 
     It observes list results only; every refusal on a call path lives in
-    the component wrappers, so nothing here can diverge between doors.
+    the component wrappers, so nothing here can diverge between doors. The
+    dispatcher hands middleware the serialized wire result, so the filter
+    works on the camelCase dict shape.
     """
     tool_scopes = {spec.name: spec.scope for spec in TOOL_SPECS}
     resource_scopes = {spec.uri: spec.scope for spec in RESOURCE_SPECS}
     prompt_scopes = {spec.name: spec.scope for spec in PROMPT_SPECS}
 
-    def keep(name: str, scope: str | None) -> bool:
-        return component_visible(name, scope, guards)
+    # method -> (result key, item identity key, scope map)
+    listings = {
+        "tools/list": ("tools", "name", tool_scopes),
+        "prompts/list": ("prompts", "name", prompt_scopes),
+        "resources/list": ("resources", "uri", resource_scopes),
+        "resources/templates/list": (
+            "resourceTemplates",
+            "uriTemplate",
+            resource_scopes,
+        ),
+    }
 
     async def middleware(context, call_next):
         result = await call_next(context)
-        method = context.method
-        if method == "tools/list" and hasattr(result, "tools"):
-            result = result.model_copy(
-                update={
-                    "tools": [
-                        tool
-                        for tool in result.tools
-                        if keep(tool.name, tool_scopes.get(tool.name))
-                    ]
-                }
+        route = listings.get(context.method)
+        if route is None or not isinstance(result, dict):
+            return result
+        key, identity, scopes = route
+        items = result.get(key)
+        if not isinstance(items, list):
+            return result
+        kept = [
+            item
+            for item in items
+            if component_visible(
+                str(item.get(identity, "")),
+                scopes.get(str(item.get(identity, ""))),
+                guards,
             )
-        elif method == "prompts/list" and hasattr(result, "prompts"):
-            result = result.model_copy(
-                update={
-                    "prompts": [
-                        prompt
-                        for prompt in result.prompts
-                        if keep(prompt.name, prompt_scopes.get(prompt.name))
-                    ]
-                }
-            )
-        elif method == "resources/list" and hasattr(result, "resources"):
-            result = result.model_copy(
-                update={
-                    "resources": [
-                        resource
-                        for resource in result.resources
-                        if keep(
-                            str(resource.uri),
-                            resource_scopes.get(str(resource.uri)),
-                        )
-                    ]
-                }
-            )
-        elif method == "resources/templates/list" and hasattr(
-            result, "resource_templates"
-        ):
-            result = result.model_copy(
-                update={
-                    "resource_templates": [
-                        template
-                        for template in result.resource_templates
-                        if keep(
-                            str(template.uri_template),
-                            resource_scopes.get(str(template.uri_template)),
-                        )
-                    ]
-                }
-            )
-        return result
+        ]
+        return {**result, key: kept}
 
     return middleware
