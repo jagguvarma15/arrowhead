@@ -50,10 +50,12 @@ async def test_exec_tools_appear_only_when_enabled(monkeypatch):
     assert names == expected_tools("coding", exec_enabled=True)
 
 
-async def test_full_profile_is_the_whole_catalog(monkeypatch):
+async def test_full_profile_with_exec_is_the_whole_catalog(monkeypatch):
     monkeypatch.setenv("ARROWHEAD_PROFILE", "full")
     get_settings.cache_clear()
-    assert expected_tools("full") == {spec.name for spec in TOOL_SPECS}
+    assert expected_tools("full", exec_enabled=True) == {
+        spec.name for spec in TOOL_SPECS
+    }
 
 
 async def test_core_profile_keeps_the_utility_tools_only(monkeypatch):
