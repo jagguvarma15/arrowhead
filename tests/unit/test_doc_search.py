@@ -1,8 +1,8 @@
 import pytest
-from fastmcp.exceptions import ToolError
 
 from arrowhead.authz.enforce import get_authorizer
 from arrowhead.config import get_settings
+from arrowhead.errors import ToolError
 from arrowhead.tools.doc_search import doc_search
 
 
