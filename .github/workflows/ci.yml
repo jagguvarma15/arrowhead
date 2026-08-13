@@ -47,6 +47,13 @@ jobs:
           ARROWHEAD_POSTGRES_TEST_URL: postgresql+asyncpg://arrow:arrow@localhost:5432/arrow
         run: uv run pytest tests/ -v
 
+      # Confirm the wheel builds and its console script runs, so a packaging
+      # regression fails CI rather than a publish.
+      - name: Build and smoke-test the wheel
+        run: |
+          uv build
+          uvx --from dist/*.whl arrowhead list-tools
+
   security:
     runs-on: ubuntu-latest
     steps:
