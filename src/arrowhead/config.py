@@ -310,6 +310,28 @@ class Settings(BaseSettings):
                 )
         return value
 
+    # Sandboxed execution. Off by default and, even when enabled, denied
+    # by the default authorization policy: a deployment opts in twice, by
+    # setting exec_enabled and granting the execute action. The subprocess
+    # runner bounds CPU, memory, wall time, and output and scrubs the
+    # environment, but does not block network or filesystem reads beyond
+    # OS permissions; a deployment needing isolation uses the container
+    # runner (network-none, read-only root) or an external sandbox.
+    exec_enabled: bool = False
+    exec_runner: Literal["subprocess", "container"] = "subprocess"
+    exec_container_image: str = ""
+    exec_workdir: Path = Path("exec-scratch")
+    exec_cpu_seconds: int = 10
+    exec_wall_seconds: float = 30.0
+    exec_test_wall_seconds: float = 120.0
+    exec_memory_bytes: int = 512_000_000
+    exec_max_output_bytes: int = 200_000
+    exec_max_code_bytes: int = 100_000
+    exec_max_copy_bytes: int = 50_000_000
+    # The test command run_tests executes inside the scratch copy, split
+    # shell-style into an argv; empty refuses run_tests.
+    exec_test_command: str = ""
+
     # abuse controls. Ceilings are calls per caller per minute; network-
     # bound safe_fetch gets a low ceiling, cheap calculate a high one.
     # With ARROWHEAD_REDIS_URL set, buckets live in Redis and the limits
@@ -328,6 +350,8 @@ class Settings(BaseSettings):
     code_explain_per_minute: int = 10
     summarize_diff_per_minute: int = 10
     rerank_per_minute: int = 20
+    run_snippet_per_minute: int = 10
+    run_tests_per_minute: int = 4
     doc_retrieve_per_minute: int = 30
     doc_scan_per_minute: int = 20
     doc_write_per_minute: int = 30
