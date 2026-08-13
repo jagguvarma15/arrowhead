@@ -396,6 +396,42 @@ TOOL_SPECS: list[ToolSpec] = [
         },
     ),
     ToolSpec(
+        name="pack_context",
+        import_path="arrowhead.tools.pack_context:pack_context",
+        scope="context:read",
+        rate_limit_attr="pack_context_per_minute",
+        family="context",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="workingset_get",
+        import_path="arrowhead.tools.workingset:workingset_get",
+        scope="context:read",
+        rate_limit_attr="workingset_get_per_minute",
+        family="context",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="workingset_update",
+        import_path="arrowhead.tools.workingset:workingset_update",
+        scope="context:write",
+        rate_limit_attr="workingset_update_per_minute",
+        family="context",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
         name="scan_corpus_async",
         import_path="arrowhead.connectors.tasks:scan_corpus_async",
         scope="docs:scan",
