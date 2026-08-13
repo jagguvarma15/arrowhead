@@ -6,9 +6,8 @@ and basic operators. An injection payload has to beat both, and each layer
 is tested on its own.
 """
 
-from arrowhead.errors import ToolError
-
 from arrowhead.config import get_settings
+from arrowhead.errors import ToolError
 from arrowhead.security.input_validation import (
     ValidationError,
     validate_arithmetic_expression,
