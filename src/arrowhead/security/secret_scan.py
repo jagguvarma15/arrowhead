@@ -78,3 +78,40 @@ def scan_text(text: str, *, max_findings: int) -> list[Finding]:
                 if len(findings) >= max_findings:
                     return findings
     return findings
+
+
+def redact_text(text: str, *, max_findings: int) -> tuple[str, int]:
+    """Replace every secret and PII match in the text with its placeholder.
+
+    Runs the same pattern set as scan_text and substitutes each matched
+    value with its redaction tag in place, so output that must leave the
+    server (a subprocess's stdout) carries no raw secret. Returns the
+    redacted text and how many values were replaced. Substitution is
+    right-to-left within a line so earlier spans keep their offsets.
+    """
+    replaced = 0
+    out_lines: list[str] = []
+    for line in text.splitlines():
+        spans: list[tuple[int, int, str]] = []
+        claimed: list[tuple[int, int]] = []
+        for kind, pattern in _PATTERNS:
+            for match in pattern.finditer(line):
+                span = match.span(1) if match.groups() else match.span(0)
+                if any(
+                    span[0] < end and start < span[1] for start, end in claimed
+                ):
+                    continue
+                claimed.append(span)
+                value = match.group(1) if match.groups() else match.group(0)
+                spans.append((span[0], span[1], _redact(value, kind)))
+        for start, end, placeholder in sorted(spans, reverse=True):
+            line = line[:start] + placeholder + line[end:]
+            replaced += 1
+            if replaced >= max_findings:
+                break
+        out_lines.append(line)
+        if replaced >= max_findings:
+            out_lines.extend(text.splitlines()[len(out_lines):])
+            break
+    trailing = "\n" if text.endswith("\n") else ""
+    return "\n".join(out_lines) + trailing, replaced
