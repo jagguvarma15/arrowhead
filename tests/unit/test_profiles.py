@@ -17,8 +17,11 @@ from arrowhead.tools.catalog import (
 )
 
 
-def expected_tools(profile: str) -> set[str]:
-    families = PROFILES[profile]
+def expected_tools(profile: str, *, exec_enabled: bool = False) -> set[str]:
+    families = set(PROFILES[profile])
+    if not exec_enabled:
+        # The exec family is gated a second time behind the enable flag.
+        families.discard("exec")
     return {spec.name for spec in TOOL_SPECS if spec.family in families}
 
 
@@ -33,6 +36,18 @@ async def test_each_profile_registers_exactly_its_families(
     async with Client(create_server(), raise_exceptions=True) as client:
         names = {tool.name for tool in (await client.list_tools()).tools}
     assert names == expected_tools(profile)
+
+
+async def test_exec_tools_appear_only_when_enabled(monkeypatch):
+    monkeypatch.setenv("ARROWHEAD_PROFILE", "coding")
+    monkeypatch.setenv("ARROWHEAD_EXEC_ENABLED", "true")
+    get_settings.cache_clear()
+    from arrowhead.server import create_server
+
+    async with Client(create_server(), raise_exceptions=True) as client:
+        names = {tool.name for tool in (await client.list_tools()).tools}
+    assert {"run_snippet", "run_tests"} <= names
+    assert names == expected_tools("coding", exec_enabled=True)
 
 
 async def test_full_profile_is_the_whole_catalog(monkeypatch):
