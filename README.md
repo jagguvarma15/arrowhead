@@ -1,220 +1,66 @@
-# Arrowhead
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/arrowhead-dark.svg">
+    <img alt="Arrowhead" src="assets/arrowhead.svg" width="88" height="88">
+  </picture>
+</p>
 
-**The fast, secure data plane for AI agents.** Arrowhead is a hardened
-[Model Context Protocol](https://modelcontextprotocol.io) server and an
-installable foundation for exposing infrastructure (a document corpus, SQL, a
-pgvector store, a source tree, a model backend) to AI agents safely. The safe
-path is the default path: OAuth 2.1 authorization, per-resource authorization,
-SSRF and path-traversal defenses, content sanitization and provenance,
-per-caller rate limiting, structured audit logging, and token-efficient
-schemas apply to every component, and there is no unguarded path.
+<h1 align="center">Arrowhead</h1>
+
+<p align="center"><strong>The fast, secure data plane for AI agents.</strong></p>
+
+<p align="center">
+  <a href="https://modelcontextprotocol.io"><img alt="Speaks the Model Context Protocol" src="https://img.shields.io/badge/speaks-Model_Context_Protocol-C6693E?style=flat-square&labelColor=1D2024"></a>
+  <a href="https://github.com/modelcontextprotocol/python-sdk"><img alt="Built on the official MCP Python SDK v2" src="https://img.shields.io/badge/SDK-mcp_v2-33717E?style=flat-square&labelColor=1D2024"></a>
+  <img alt="Serves protocol revision 2026-07-28" src="https://img.shields.io/badge/protocol-2026--07--28-33717E?style=flat-square&labelColor=1D2024">
+  <img alt="Reachable over stdio and HTTP" src="https://img.shields.io/badge/interface-stdio_and_HTTP-33717E?style=flat-square&labelColor=1D2024">
+  <a href="docs/SECURITY.md"><img alt="Authorization is default-deny" src="https://img.shields.io/badge/authorization-default--deny-2E7D57?style=flat-square&labelColor=1D2024"></a>
+  <a href="LICENSE"><img alt="MIT licensed" src="https://img.shields.io/badge/license-MIT-1D2024?style=flat-square&labelColor=1D2024"></a>
+</p>
+
+<p align="center">
+A hardened <a href="https://modelcontextprotocol.io">Model Context Protocol</a> server and an
+importable Python library for exposing your infrastructure &mdash; a document corpus, SQL, a
+pgvector store, a source tree, a model backend &mdash; to AI agents, with no unguarded path.
+</p>
+
+---
+
+The safe path is the default path. OAuth 2.1 authorization, per-resource authorization, SSRF
+and path-traversal defenses, content sanitization and provenance, per-caller rate limiting,
+structured audit logging, and token-efficient schemas apply to every tool, resource, and prompt.
+Security lives inside each component rather than in a proxy in front of it, so the guarantees
+hold whether a call arrives over HTTP or the server is imported and called directly from Python.
 
 It runs on the official [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
-(the `mcp` package, version 2), so one streamable-HTTP endpoint serves the
-sessionless 2026-07-28 protocol natively while still serving handshake-era
-clients that send the `initialize` lifecycle. The full modern surface is
-exposed: tools with structured output, resources and resource templates,
-prompts, argument completions, and handle-based asynchronous tasks.
-
-Security lives inside each tool, resource, and prompt rather than in a proxy in
-front of them, so the guarantees hold whether a call arrives over HTTP or the
-server is imported and called directly from Python.
-
-## The coding data plane
-
-Beyond the general-purpose tools, Arrowhead exposes a code-focused surface an
-agent host such as Claude Code or Cursor can adopt directly. A deployment picks
-a **profile** (`ARROWHEAD_PROFILE`) so a connection carries only the tool
-families it needs, keeping the per-connection context lean:
-
-| Family | Tools | What it does |
-|---|---|---|
-| `core` | `safe_fetch`, `calculate`, `read_file` | The general-purpose utilities |
-| `docs` | `doc_*`, corpus resource and prompts | The jailed document corpus |
-| `data` | `sql_query`, `vector_search`, `vector_query`, `hybrid_query`, `doc_index` | SQL reads and pgvector retrieval, including hybrid vector-plus-full-text fusion and diff-aware re-indexing |
-| `repo` | `code_search`, `code_read`, `symbol_map`, `dependency_graph` | Read-only intelligence over a jailed source tree |
-| `assist` | `code_explain`, `summarize_diff`, `rerank` | Model-backed helpers over a pluggable completion provider |
-| `exec` | `run_snippet`, `run_tests` | Sandboxed execution behind a resource-bounded runner (opt-in twice) |
-| `context` | `pack_context`, `workingset_get`, `workingset_update` | A token-budgeted, secret-scanned, provenance-stamped context bundle and the working sets that feed it |
-
-Profiles: `core` is the three utilities; `docs` adds the document, data, and
-task families; `coding` is the code-focused surface (`core`, `data`, `repo`,
-`assist`, `exec`, `context`); `full` (the default) is every family. A tool
-outside the active profile is never registered, so it costs no context and a
-call to it is unknown.
-
-Three capabilities go beyond what comparable coding servers offer, built on
-Arrowhead's security posture: the guarded **context packer** secret-scans and
-provenance-stamps every snippet before it leaves the server; **hybrid,
-code-aware retrieval** fuses vector similarity with Postgres full-text rank and
-re-embeds only changed chunks; and a **tool-integrity digest**
-(`arrowhead://integrity`) lets a client pin the tool surface it consented to
-and detect a later change.
-
-## Why it looks the way it does
-
-A published assessment of MCP servers in the wild found the same handful of
-flaws again and again: command injection, server-side request forgery, path
-traversal, and a large share with no authentication at all. Each built-in tool
-is a direct, working answer to one of those classes:
-
-| Tool | Vulnerability class it closes | How |
-|---|---|---|
-| `safe_fetch` | Server-side request forgery | Resolves the target host, refuses private, loopback, link-local, and cloud-metadata addresses, restricts the port, and pins the vetted IP so DNS rebinding cannot swap it |
-| `calculate` | Command / code injection | A strict character allowlist, then an AST interpreter that evaluates only numbers and basic operators. No `eval`, no `exec`, no shell |
-| `read_file` | Path traversal | Relative paths only, no parent components, and the fully resolved path (after symlinks) must stay inside one configured jail directory |
-
-Each carries accurate MCP behavior annotations and a published output schema.
-Auth, per-resource authorization, rate limiting, audit logging, and tracing wrap
-every call regardless of which tool, resource, or prompt it targets.
+(the `mcp` package, version 2): one streamable-HTTP endpoint serves the sessionless 2026-07-28
+protocol natively while still serving handshake-era clients that send the `initialize` lifecycle.
 
 ## Quickstart
 
-### Local, over stdio (for MCP Inspector)
-
 ```bash
-uv sync
-uv run python -m arrowhead.server
+uv sync                               # install
+uv run python -m arrowhead.server     # serve over stdio, ready for MCP Inspector
 ```
 
-In another terminal, point the Inspector at it:
+Auth is off in stdio mode, so every tool is immediately callable. Try `calculate` with
+`2 * (3 + 4)`, or `read_file` with `welcome.txt` (a sample lives in `sandbox/`). To point the
+Inspector at it:
 
 ```bash
 npx @modelcontextprotocol/inspector uv run python -m arrowhead.server
 ```
 
-Auth is off in this mode, so every tool is immediately callable. Try
-`calculate` with `2 * (3 + 4)`, or `read_file` with `welcome.txt` (a sample
-file lives in `sandbox/`).
-
-### Local, over HTTP with Docker
+For a streamable-HTTP endpoint on `http://localhost:8000/mcp` with a shared rate-limit store:
 
 ```bash
 docker compose -f deploy/docker-compose.yml up
 ```
 
-This brings up the streamable HTTP endpoint on `http://localhost:8000/mcp`
-alongside a Redis instance for shared rate-limit state. Any MCP client that
-speaks streamable HTTP can connect.
-
-### As a packaged command
-
-The project builds a wheel whose console script runs the server, so once it is
-published a host can launch it with no checkout:
-
-```bash
-uvx arrowhead serve          # run over the configured transport
-uvx arrowhead list-tools     # print each tool and the scope it requires
-```
-
-### Choosing a surface
-
-Set `ARROWHEAD_PROFILE` to expose only the families a deployment needs. A
-coding host connects to the `coding` profile; a documentation service uses
-`docs`; the default `full` exposes everything. The `exec` family is gated a
-second time behind `ARROWHEAD_EXEC_ENABLED`, so sandboxed execution never
-appears until it is turned on and its `execute` action is granted.
-
-## Tools
-
-Every argument is validated before it reaches an evaluator, the filesystem, or
-the network, and every failure is a controlled error rather than a crash.
-
-- **`safe_fetch(url)`** — fetches a public `http`/`https` URL and returns its
-  status, content type, and body. Redirects are followed manually with the
-  SSRF guard re-applied on every hop; response size is capped. The caller's
-  MCP credentials are never attached to the outbound request.
-- **`calculate(expression)`** — evaluates arithmetic with `+ - * / ( )` and
-  decimals. `2 * (3 + 4)` returns `14`. `1+1; import os` is refused.
-- **`read_file(path)`** — reads a text file by relative path from the
-  configured jail root. `../../etc/passwd` is refused; a symlink inside the
-  jail that points outside it is refused.
-
-### Document suite
-
-A second group of tools operates over a jailed corpus of JSON, Markdown, and
-plain-text documents. Content returned to the caller is treated as untrusted
-data: it is sanitized per format (JSON parsed under strict bounds, Markdown
-stripped of HTML and image-exfiltration vectors, text stripped of ANSI and
-invisible characters) and wrapped in provenance so a client can present it as
-data rather than instructions.
-
-| Tool | Scope | Purpose |
-|---|---|---|
-| `doc_search(query, path_prefix, use_regex)` | `docs:search` | Bounded, read-filtered search; literal by default, regex opt-in behind a ReDoS-resistant engine |
-| `doc_read(path)` | `docs:read` | Read one corpus document, format-aware and sanitized |
-| `doc_retrieve(url)` | `docs:read` | Fetch an external document, SSRF-guarded and sanitized |
-| `doc_scan(path_prefix)` | `docs:scan` | Detect secrets and PII, reporting redacted placeholders, never raw values |
-| `doc_write(path, content, overwrite)` | `docs:write` | Create or (with confirmation) overwrite a document via an atomic, no-clobber write |
-
-### Authorization
-
-Scopes are split by verb, and a scope is necessary but not sufficient: every
-document call also passes a server-side per-resource check. The default policy
-lets any authenticated caller search, read, and scan the corpus, but write only
-within its own `<subject>/` namespace, so cross-subject writes are denied. The
-policy is a small JSON grant list (`ARROWHEAD_AUTHZ_POLICY`) whose interface is
-designed so an external engine (OPA, Cedar) can replace it later. Overwriting an
-existing document is destructive and requests human confirmation via MCP
-elicitation.
-
-## Data connectors
-
-The flagship connector exposes a Postgres database, including a
-[pgvector](https://github.com/pgvector/pgvector) store, behind the same guards.
-Both are opt-in extras (`pip install 'arrowhead[sql,postgres]'`) and both refuse
-to run until a DSN is configured.
-
-| Tool | Scope | Purpose |
-|---|---|---|
-| `sql_query(query, params)` | `sql:read` | Runs a single vetted read-only statement. The query is parsed in the database's own dialect, every referenced table (or a sentinel for a tableless query) is authorized, and it runs in a read-only transaction under a server-side statement timeout. Bind values with named parameters |
-| `vector_search(collection, embedding, k)` | `vector:search` | A bounded pgvector nearest-neighbour search over an allow-listed collection. The tenant filter is the authenticated caller, never an argument, so one tenant cannot read another's rows |
-| `vector_query(collection, query, k)` | `vector:search` | The text-facing retrieval tool: it embeds the query server-side through the configured provider and returns the nearest chunks, each carrying its source document and chunk index as a citation |
-| `doc_index(collection, path_prefix)` | `vector:write` | Chunks, embeds, and writes corpus documents into a collection under the caller's tenant so vector_query can retrieve them. It uses a write credential separate from the read-only DSN, and a re-index replaces a document's existing chunks |
-
-A read-only database role is the recommended credential; the read-only
-transaction and statement timeout are defense in depth behind the parser.
-
-### Retrieval (RAG)
-
-Together, `doc_index` and `vector_query` close the retrieval loop over the jailed
-corpus. Point `doc_index` at a path prefix and it chunks each authorized
-document, embeds the chunks through the configured provider, and writes them
-under the caller's tenant; `vector_query` then embeds a natural-language query
-server-side and returns the nearest chunks with their source and position as
-citations. Embeddings come from a pluggable provider: a stdlib deterministic
-embedder (offline, for tests and development) by default, or an OpenAI-compatible
-HTTP endpoint reached through the SSRF guard and the egress allowlist. Apply
-[`deploy/pgvector_schema.sql`](deploy/pgvector_schema.sql) once, set
-`ARROWHEAD_VECTOR_WRITE_DSN` to a least-privilege write role, and grant the
-caller the `ingest` action (denied by default). See
-[`examples/docs_rag/`](examples/docs_rag/) for a runnable walkthrough.
-
-## Resources, prompts, and completions
-
-Beyond tools, Arrowhead exposes the other MCP primitives, each running the same
-authorization, sanitization, rate limiting, audit, and kill-switch path:
-
-- **Resources**: the `doc://{path}` template reads one corpus document,
-  sanitized for its format, and `docs://index` lists the documents the caller
-  is authorized to read.
-- **Prompts**: `summarize_document` and `audit_corpus` are reusable
-  instructions that reference a resource or a tool rather than inlining
-  untrusted content.
-- **Completions**: argument completion suggests corpus paths as a caller types,
-  filtered by the caller's authorization so it never reveals a path they could
-  not read, and rate-limited, kill-switchable, and audited like a tool call.
-- **Async tasks**: `scan_corpus_async` starts a background corpus scan and
-  returns a server-minted handle; `task_get` polls it and `task_update` cancels
-  it. A task is owned by the caller that started it, so only that caller can poll
-  or cancel it, following the 2026-07-28 stateless, handle-based pattern.
-
 ## Use it as a library
 
-The server is also an importable foundation. `Arrowhead.call` and the HTTP
-transport route through the same dispatch, so an imported call runs the
-identical authorization, sanitization, and middleware path as a call over the
-wire:
+`Arrowhead.call` and the HTTP transport route through the same dispatch, so an imported call runs
+the identical authorization, sanitization, and middleware path as a call over the wire:
 
 ```python
 from arrowhead.app import Arrowhead
@@ -225,72 +71,71 @@ with app.as_principal("service:etl", {"docs:read"}):
     document = await app.read_resource("doc://notes.md")
 ```
 
-A call with no principal is anonymous, and every scoped component is denied, so
-the guarded path is the default whichever door a call comes through.
+A call with no principal is anonymous, and every scoped component is denied, so the guarded path
+is the default whichever door a call comes through.
+
+## What it exposes
+
+A deployment sets `ARROWHEAD_PROFILE` (`core`, `docs`, `coding`, or `full`) so a connection
+carries only the tool families it needs; a tool outside the active profile is never registered,
+so it costs no context and a call to it is unknown.
+
+| Family | Tools | What it does |
+|---|---|---|
+| `core` | `safe_fetch`, `calculate`, `read_file` | The general-purpose utilities |
+| `docs` | `doc_*`, corpus resource and prompts | The jailed document corpus |
+| `data` | `sql_query`, `vector_search`, `vector_query`, `hybrid_query`, `doc_index` | SQL reads and pgvector retrieval, including hybrid vector-plus-full-text fusion and diff-aware re-indexing |
+| `repo` | `code_search`, `code_read`, `symbol_map`, `dependency_graph` | Read-only intelligence over a jailed source tree |
+| `assist` | `code_explain`, `summarize_diff`, `rerank` | Model-backed helpers over a pluggable completion provider |
+| `exec` | `run_snippet`, `run_tests` | Sandboxed execution behind a resource-bounded runner (opt in twice) |
+| `context` | `pack_context`, `workingset_get`, `workingset_update` | A token-budgeted, secret-scanned, provenance-stamped context bundle and the working sets that feed it |
+
+Three capabilities go beyond what comparable coding servers offer: the guarded **context packer**
+secret-scans and provenance-stamps every snippet before it leaves the server; **hybrid, code-aware
+retrieval** fuses vector similarity with Postgres full-text rank and re-embeds only changed chunks;
+and a **tool-integrity digest** (`arrowhead://integrity`) lets a client pin the tool surface it
+consented to and detect a later change. Alongside tools, Arrowhead exposes resources, resource
+templates, prompts, argument completions, and handle-based asynchronous tasks &mdash; each on the
+same guarded path.
+
+The data and coding families are opt-in extras and refuse to run until configured:
+
+```bash
+uv sync --extra sql --extra postgres    # SQL and pgvector connectors
+```
+
+## Built for a hostile surface
+
+A published assessment of MCP servers in the wild found the same flaws again and again: command
+injection, server-side request forgery, path traversal, and a large share with no authentication
+at all. Each built-in tool is a direct answer to one of those classes:
+
+| Tool | Vulnerability class it closes | How |
+|---|---|---|
+| `safe_fetch` | Server-side request forgery | Resolves the host, refuses private, loopback, link-local, and cloud-metadata addresses, restricts the port, and pins the vetted IP so DNS rebinding cannot swap it |
+| `calculate` | Command / code injection | A strict character allowlist, then an AST interpreter that evaluates only numbers and basic operators. No `eval`, no `exec`, no shell |
+| `read_file` | Path traversal | Relative paths only, no parent components, and the fully resolved path (after symlinks) must stay inside one configured jail directory |
+
+Content returned to a caller is treated as untrusted data: sanitized per format and wrapped in
+provenance so a client presents it as data rather than instructions. Scopes are split by verb and
+a scope is necessary but not sufficient &mdash; every call also passes a server-side per-resource
+check, default-deny, whose small JSON grant list can be replaced by an external engine (OPA, Cedar).
 
 ## Configuration
 
 Every setting is an environment variable with the `ARROWHEAD_` prefix; see
-[`.env.example`](.env.example) for the full list with safe placeholders. The
-essentials:
-
-| Variable | Purpose | Default |
-|---|---|---|
-| `ARROWHEAD_TRANSPORT` | `stdio` or `http` | `stdio` |
-| `ARROWHEAD_AUTH_ENABLED` | Turn on OAuth 2.1 verification | `false` |
-| `ARROWHEAD_ALLOW_INSECURE_HTTP` | Permit HTTP with auth disabled (trusted-network test only) | `false` |
-| `ARROWHEAD_OAUTH_ISSUER` / `_AUDIENCE` / `_JWKS_URI` | Authorization server details | - |
-| `ARROWHEAD_JAIL_ROOT` | Directory `read_file` may read from | `sandbox` |
-| `ARROWHEAD_DOCS_ROOT` | Corpus directory the `doc_*` tools operate on | `documents` |
-| `ARROWHEAD_AUTHZ_POLICY` | Per-resource authorization grants (JSON) | safe default |
-| `ARROWHEAD_SQL_DSN` | SQLAlchemy async URL for the SQL and pgvector connectors | - |
-| `ARROWHEAD_PGVECTOR_COLLECTIONS` | Allow-listed pgvector collections to search | - |
-| `ARROWHEAD_VECTOR_WRITE_DSN` | Write credential for `doc_index`, separate from the read-only DSN | - |
-| `ARROWHEAD_EMBEDDING_PROVIDER` | `deterministic` (offline) or `http` (OpenAI-compatible endpoint) | `deterministic` |
-| `ARROWHEAD_EGRESS_ALLOWED_HOSTS` / `_PORTS` | Outbound host and extra-port allowlists | - |
-| `ARROWHEAD_REDIS_URL` | Shared rate-limit store across replicas | - |
-| `ARROWHEAD_DISABLED_TOOLS` | Kill switch: comma-separated component names | - |
-
-## Testing
-
-```bash
-uv run pytest tests/ -v
-```
-
-The suite covers unit tests per tool and per security module, protocol
-conformance over the HTTP transport, and an adversarial corpus of SSRF,
-injection, and traversal payloads. Lint and tests run in CI on every pull
-request.
+[`.env.example`](.env.example) for the full list with safe placeholders. Enable auth and set the
+OAuth variables before exposing the server anywhere public.
 
 ## Documentation
 
-- [`docs/SECURITY.md`](docs/SECURITY.md) — each mitigation mapped to the
-  vulnerability class it closes
-- [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — attack surface per tool and
-  what is out of scope for this version
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — request flow from auth
-  through rate limiting to the tool and the audit log
-- [`docs/DEPLOY.md`](docs/DEPLOY.md) — runbook for a live reference deployment
-- [`CHANGELOG.md`](CHANGELOG.md) — notable changes
-
-## Deployment
-
-`deploy/` holds a multi-stage, non-root [`Dockerfile`](deploy/Dockerfile), a
-local [`docker-compose.yml`](deploy/docker-compose.yml), and blueprints for
-[Render](deploy/render.yaml) and [Fly.io](deploy/fly.toml). The server does not
-terminate TLS itself; the hosting platform or a reverse proxy in front of the
-process must. Set the OAuth variables and enable auth before exposing the
-server anywhere public.
-
-[`docs/DEPLOY.md`](docs/DEPLOY.md) is the step-by-step runbook for a live
-reference instance on Render with WorkOS AuthKit, including verification,
-rollback, and corpus backup. Before going public, sanity-check concurrency and
-rate limiting against a local stack:
-
-```bash
-docker compose -f deploy/docker-compose.yml up --build -d
-uv run python scripts/loadtest.py http://localhost:8000 200
-```
+- [`docs/SECURITY.md`](docs/SECURITY.md) &mdash; each mitigation mapped to the vulnerability class it closes
+- [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) &mdash; attack surface per tool and what is out of scope
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) &mdash; request flow from auth through rate limiting to the tool and the audit log
+- [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) &mdash; connecting Claude Code, Cursor, and other hosts
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) &mdash; runbook for a live reference deployment
+- [`examples/`](examples/) &mdash; a runnable RAG walkthrough and a coding-agent walkthrough
+- [`CHANGELOG.md`](CHANGELOG.md) &mdash; notable changes
 
 ## License
 
