@@ -9,10 +9,12 @@ key that sits in retrieved code or a pinned file never reaches the model,
 and each snippet carries provenance (source, kind, span, a content hash,
 and when it was retrieved) inside the untrusted framing.
 
-Every source of content is reached through the same internal functions the
-standalone tools use, and every pinned item is re-authorized at pack time,
-so the packer can never surface content a caller could not read directly.
-No content bypasses the scan or the framing.
+The pack is authorized at the boundary as a search over the corpus
+namespace, every source of content is reached through the same internal
+functions the standalone tools use, and every pinned item is
+re-authorized at pack time, so the packer can never surface content a
+caller could not read directly. No content bypasses the scan or the
+framing.
 """
 
 import hashlib
@@ -21,11 +23,12 @@ from typing import TypedDict
 
 import anyio
 
-from arrowhead.auth.identity import caller_identity
-from arrowhead.authz.enforce import get_authorizer
+from arrowhead.authz.enforce import authorize_action, get_authorizer
 from arrowhead.authz.policy import (
     ACTION_READ,
+    ACTION_SEARCH,
     KIND_DOCUMENT,
+    KIND_PREFIX,
     KIND_REPO_FILE,
     Resource,
 )
@@ -82,7 +85,9 @@ async def pack_context(
         raise ToolError(str(exc)) from exc
     budget = _bounded_budget(token_budget, settings)
 
-    subject = caller_identity()
+    subject = authorize_action(
+        ACTION_SEARCH, Resource(kind=KIND_PREFIX, identifier="")
+    )
     candidates: list[dict] = []
     if working_set:
         candidates.extend(await _resolve_pinned(working_set, subject, settings))
