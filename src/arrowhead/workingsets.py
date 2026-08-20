@@ -6,9 +6,11 @@ later resolves cheaply, for example through the context packer. Following
 the task registry's contract exactly: the store lives in process, every
 set is keyed by its owner's verified identity so a caller only ever sees
 its own, a set another owner holds reads as simply not found, and the
-store is LRU-bounded so one caller cannot grow it without limit. A shared
-backend can hold this state for a multi-instance deployment later, the
-same seam the tasks and rate-limit stores leave open.
+store is bounded twice: each owner is capped at the configured number of
+sets, and the registry as a whole is LRU-bounded so many distinct owners
+cannot grow it without limit either. A shared backend can hold this state
+for a multi-instance deployment later, the same seam the tasks and
+rate-limit stores leave open.
 """
 
 from collections import OrderedDict
@@ -19,6 +21,12 @@ from dataclasses import dataclass, field
 KIND_DOC = "doc"
 KIND_REPO_FILE = "repo_file"
 _KINDS = frozenset({KIND_DOC, KIND_REPO_FILE})
+
+# The global bound is expressed in owners: the registry holds at most
+# max_sets sets for each of this many distinct owners before the least
+# recently used sets are evicted, whoever owns them. Matches the task
+# registry's fixed total bound (10 x the default 100 sets = 1000).
+_MAX_OWNERS = 10
 
 
 @dataclass(frozen=True)
@@ -100,9 +108,7 @@ class WorkingSetRegistry:
         return entry
 
     def _evict(self) -> None:
-        while len(self._sets) > self._max_sets * max(
-            1, len({owner for owner, _ in self._sets})
-        ):
+        while len(self._sets) > self._max_sets * _MAX_OWNERS:
             self._sets.popitem(last=False)
 
 
