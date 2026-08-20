@@ -113,6 +113,11 @@ def test_container_runner_builds_a_locked_down_argv():
     assert "--network none" in joined
     assert "--read-only" in joined
     assert "--memory=256000000" in joined
+    # The CPU budget is seconds of CPU time, enforced as a ulimit; it must
+    # never surface as a --cpus core count.
+    assert "--ulimit=cpu=2" in joined
+    assert "--cpus=1" in joined
+    assert "--cpus=2" not in joined
     assert "--pids-limit=128" in joined
     assert argv[-3:] == ["python", "-c", "print(1)"]
 
