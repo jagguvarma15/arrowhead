@@ -12,14 +12,6 @@ from arrowhead.config import get_settings
 from arrowhead.errors import ToolError
 from arrowhead.tools.pack_context import pack_context
 from arrowhead.tools.workingset import workingset_update
-from arrowhead.workingsets import reset_registry
-
-
-@pytest.fixture(autouse=True)
-def fresh_registry():
-    reset_registry()
-    yield
-    reset_registry()
 
 
 @pytest.fixture
