@@ -74,6 +74,48 @@ All notable changes to this project are recorded here. The format follows
 - A startup refusal to serve HTTP with authentication disabled unless
   `ARROWHEAD_ALLOW_INSECURE_HTTP` is set, and startup validation of the SQL
   dialect and the egress port allowlist.
+- A coding-agent walkthrough (`examples/coding_agent/`) driving the repo,
+  assist, exec, and context families through the importable facade.
+- PyPI packaging metadata (`project.urls`, keywords, classifiers, license
+  expression); CI builds the wheel and smoke-tests its console script, and the
+  load test gained a `--modern` sessionless leg.
+- The Arrowhead logo (`assets/`) with dark and monochrome cuts, and the README
+  rewritten around it.
+- `ARROWHEAD_EXEC_COPY_MAX_FILES` bounds the file count of the `run_tests`
+  sandbox copy, which previously borrowed the symbol-map limit.
+- Direct tests for the ReDoS-guarded search matcher and for the optional
+  tree-sitter symbol backend, and a suite-wide fail-on-warning ratchet with
+  coverage reported in CI.
+
+### Fixed
+
+- The container runner passed the CPU-seconds budget as Docker's `--cpus` core
+  count, which refuses to start on small hosts and grants unbounded CPU time on
+  large ones; the budget is now enforced as a CPU-time ulimit inside the
+  container alongside a single-core quota.
+- Runaway subprocess output is killed the moment it exceeds the byte cap
+  instead of buffering in server memory until the wall clock expires.
+- The working set registry's eviction could never trigger, so many distinct
+  owners grew server memory without bound; the registry is now bounded globally
+  as well as per owner.
+- `code_explain` now enforces the same repo extension allowlist as `code_read`,
+  and `pack_context` authorizes at the tool boundary like every other
+  range-scoped tool.
+- Disabling the `doc://{+path}` resource template now refuses the concrete
+  reads it expands to as well as hiding it from listings.
+- `doc_index` reports `files_indexed` as every file it processed; the chunk
+  counts carry the rewrite-versus-reuse detail. Its hash lookup and chunk
+  writes are batched, so a large corpus no longer pays a round trip per
+  document and per chunk.
+- Repo authorization denials name the file or path instead of the generic
+  resource wording.
+- The environment example's commented repo lists mirror the real defaults (the
+  previous values silently dropped `.hg`, `.svn`, and `target` from pruning),
+  the runtime jail roots (`documents/`, `exec-scratch/`, `repo/`) are
+  gitignored, the compose Postgres image is digest-pinned like the other
+  images, the compose file wires the repo jail for the coding profile and
+  recommends the subprocess runner in-container, and the RAG example now
+  starts as written (complete OAuth block, write role including `UPDATE`).
 
 ### Changed
 
@@ -96,6 +138,34 @@ All notable changes to this project are recorded here. The format follows
   of side-effecting, file, network, and administrative functions, and its result
   caps are measured in bytes with a per-cell bound. `serverInfo.version` and
   `/health` now report the real package version.
+- Hot paths stopped redoing constant work: the `arrowhead://integrity` surface
+  is cached per configuration instead of rebuilding a server and every schema
+  per read, the authorizer cache is keyed by policy value so the library door
+  no longer re-parses the policy JSON on every call, argument completion prunes
+  by prefix inside the store walk, the optional tree-sitter import is probed
+  once, the embedding endpoint is resolved once per call, pinned items resolve
+  in one worker hop with shared stores, and the readiness probe's filesystem
+  check moved off the event loop.
+- `doc_search` and `code_search` run through one shared search core
+  (`tools/search_core.py`), the two pgvector similarity searches merged into
+  one query builder, both exec runners share one capped stream collector, audit
+  lines emit through one function, the untrusted framing is a single public
+  helper, and the SQL dialect alias table is single-sourced in configuration.
+  Wire-visible names, descriptions, and schemas are unchanged throughout.
+- Removed the unused listing filter and the unused scope-advertisement helper
+  (scope discovery stays deliberately unadvertised); `rerank.model_answered`
+  now reports whether the model's answer contributed any index instead of a
+  constant true.
+- The unused `pgvector` package left the `postgres` extra: embeddings travel
+  as bound text literals cast in SQL, so only `asyncpg` is needed.
+- CI pins every action to a full commit SHA, checks the lockfile, builds and
+  scans the container image the deploy blueprints reference, and runs the
+  security job on a weekly schedule as well as on pushes and pull requests.
+- The README, security document, threat model, and architecture document now
+  describe the full served surface: the tasks family, the profile-to-family
+  mapping, repo-intelligence and retrieval-tool coverage, the container CPU cap
+  as it is actually enforced, and the complete module layout. The README
+  regained its command line, scopes, testing, and deployment sections.
 
 ### Security
 
