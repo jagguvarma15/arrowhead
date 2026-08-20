@@ -115,6 +115,36 @@ async def test_embed_attaches_vector_literals():
     assert digest == _content_hash("hello")
 
 
+async def test_files_indexed_counts_reused_sources(docs, monkeypatch):
+    _configure(
+        monkeypatch,
+        ARROWHEAD_VECTOR_WRITE_DSN=POSTGRES,
+        ARROWHEAD_PGVECTOR_COLLECTIONS="doc_chunks",
+    )
+    (docs / "handbook.md").write_text("Refunds take five days. " * 20)
+    import arrowhead.connectors.pgvector_index as mod
+
+    async def fake_existing(collection, tenant, sources, settings):
+        gathered, _truncated = mod._gather_chunks("", tenant, settings)
+        return {
+            (source, index): mod._content_hash(content)
+            for source, chunks in gathered.items()
+            for index, content in chunks
+        }
+
+    async def fake_write(collection, tenant, prepared, counts, settings):
+        return 0
+
+    monkeypatch.setattr(mod, "_existing_hashes", fake_existing)
+    monkeypatch.setattr(mod, "_write_chunks", fake_write)
+    result = await mod.doc_index("doc_chunks")
+    # A re-index of a fully unchanged corpus still indexed every gathered
+    # file; the chunk counts carry the reuse detail.
+    assert result["files_indexed"] == 1
+    assert result["chunks_reused"] > 0
+    assert result["chunks_written"] == 0
+
+
 class TestPartitionChunks:
     def test_all_new_chunks_are_embedded(self):
         from arrowhead.connectors.pgvector_index import _partition_chunks
