@@ -37,11 +37,9 @@ def scripted_provider(monkeypatch):
 
 
 @pytest.fixture
-def repo(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARROWHEAD_REPO_ROOT", str(tmp_path))
-    get_settings.cache_clear()
-    (tmp_path / "app.py").write_text("def serve():\n    return 1\n")
-    return tmp_path
+def repo(repo):
+    (repo / "app.py").write_text("def serve():\n    return 1\n")
+    return repo
 
 
 async def test_unconfigured_backend_refuses_clearly(repo):
