@@ -204,15 +204,25 @@ def _partition_chunks(gathered, existing):
 
 
 async def _existing_hashes(collection, tenant, sources, settings):
-    """The stored (source, chunk_index) to content-hash map for the tenant."""
+    """The stored (source, chunk_index) to content-hash map for the tenant.
+
+    One round trip for the whole source list, so a large corpus does not
+    pay a query per document inside the timeout budget.
+    """
     text = _import_sqlalchemy()
+    from sqlalchemy import bindparam
+
     source_col = _safe_identifier(settings.pgvector_source_column)
     chunk_col = _safe_identifier(settings.pgvector_chunk_index_column)
     hash_col = _safe_identifier(settings.pgvector_content_hash_column)
     tenant_col = _safe_identifier(settings.pgvector_tenant_column)
     select_sql = (
-        f"SELECT {chunk_col}, {hash_col} FROM {collection} "  # noqa: S608
-        f"WHERE {tenant_col} = :tenant AND {source_col} = :source"
+        f"SELECT {source_col}, {chunk_col}, {hash_col} "  # noqa: S608
+        f"FROM {collection} "
+        f"WHERE {tenant_col} = :tenant AND {source_col} IN :sources"
+    )
+    statement = text(select_sql).bindparams(
+        bindparam("sources", expanding=True)
     )
     grace = settings.vector_index_timeout_seconds + _TIMEOUT_GRACE_SECONDS
     existing: dict[tuple[str, int], str] = {}
@@ -220,12 +230,11 @@ async def _existing_hashes(collection, tenant, sources, settings):
         engine = _get_engine(settings.vector_write_dsn)
         with anyio.fail_after(grace):
             async with engine.connect() as conn:
-                for source in sources:
-                    result = await conn.execute(
-                        text(select_sql), {"tenant": tenant, "source": source}
-                    )
-                    for chunk_index, digest in result:
-                        existing[(source, int(chunk_index))] = digest or ""
+                result = await conn.execute(
+                    statement, {"tenant": tenant, "sources": list(sources)}
+                )
+                for source, chunk_index, digest in result:
+                    existing[(source, int(chunk_index))] = digest or ""
     return existing
 
 
@@ -261,6 +270,8 @@ async def _write_chunks(collection, tenant, prepared, counts, settings):
     each source's rows beyond its current chunk count are deleted, so a
     shrunk document leaves no stale tail. With reuse disabled every
     source's rows are replaced wholesale, which needs no hash column.
+    Deletes and inserts are each batched into one executemany, so a large
+    corpus does not pay a round trip per chunk.
     """
     text = _import_sqlalchemy()
     id_col = _safe_identifier(settings.pgvector_id_column)
@@ -300,9 +311,31 @@ async def _write_chunks(collection, tenant, prepared, counts, settings):
             "VALUES (:id, :tenant, :source, :chunk_index, :content, "
             "(:embedding)::vector)"
         )
+    if reuse:
+        delete_binds = [
+            {"tenant": tenant, "source": source, "count": count}
+            for source, count in counts.items()
+        ]
+    else:
+        delete_binds = [
+            {"tenant": tenant, "source": source} for source in prepared
+        ]
+    insert_binds = []
+    for source, chunks in prepared.items():
+        for chunk_index, content, literal, digest in chunks:
+            bind = {
+                "id": _chunk_id(tenant, source, chunk_index),
+                "tenant": tenant,
+                "source": source,
+                "chunk_index": chunk_index,
+                "content": content,
+                "embedding": literal,
+            }
+            if reuse:
+                bind["content_hash"] = digest
+            insert_binds.append(bind)
     timeout_ms = max(1, int(settings.vector_index_timeout_seconds * 1000))
     grace = settings.vector_index_timeout_seconds + _TIMEOUT_GRACE_SECONDS
-    written = 0
     with _connector_errors():
         engine = _get_engine(settings.vector_write_dsn)
         with anyio.fail_after(grace):
@@ -311,33 +344,8 @@ async def _write_chunks(collection, tenant, prepared, counts, settings):
                     await conn.execute(
                         text(f"SET LOCAL statement_timeout = {timeout_ms}")
                     )
-                    if reuse:
-                        for source, count in counts.items():
-                            await conn.execute(
-                                text(delete_sql),
-                                {
-                                    "tenant": tenant,
-                                    "source": source,
-                                    "count": count,
-                                },
-                            )
-                    for source, chunks in prepared.items():
-                        if not reuse:
-                            await conn.execute(
-                                text(delete_sql),
-                                {"tenant": tenant, "source": source},
-                            )
-                        for chunk_index, content, literal, digest in chunks:
-                            bind = {
-                                "id": _chunk_id(tenant, source, chunk_index),
-                                "tenant": tenant,
-                                "source": source,
-                                "chunk_index": chunk_index,
-                                "content": content,
-                                "embedding": literal,
-                            }
-                            if reuse:
-                                bind["content_hash"] = digest
-                            await conn.execute(text(insert_sql), bind)
-                            written += 1
-    return written
+                    if delete_binds:
+                        await conn.execute(text(delete_sql), delete_binds)
+                    if insert_binds:
+                        await conn.execute(text(insert_sql), insert_binds)
+    return len(insert_binds)
