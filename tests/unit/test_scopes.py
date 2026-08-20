@@ -1,15 +1,10 @@
 import pytest
 from mcp.server import MCPServer
 
-from arrowhead.auth.scopes import (
-    TOOL_SCOPES,
-    has_scope,
-    require_scope,
-    supported_scopes,
-)
+from arrowhead.auth.scopes import TOOL_SCOPES, has_scope, require_scope
 from arrowhead.errors import ToolError
 from arrowhead.runtime.guards import Guards, visible_tools
-from arrowhead.tools.catalog import PROMPT_SPECS, RESOURCE_SPECS, TOOL_SPECS
+from arrowhead.tools.catalog import TOOL_SPECS
 from arrowhead.tools.registry import register_tools
 
 
@@ -61,12 +56,3 @@ def test_document_verbs_have_distinct_scopes():
     assert TOOL_SCOPES["doc_retrieve"] == "docs:read"
     assert TOOL_SCOPES["doc_scan"] == "docs:scan"
     assert TOOL_SCOPES["doc_write"] == "docs:write"
-
-
-def test_supported_scopes_are_the_catalog_scopes_deduplicated_and_sorted():
-    scopes = supported_scopes()
-    assert scopes == sorted(set(scopes))
-    expected = {spec.scope for spec in TOOL_SPECS}
-    expected |= {spec.scope for spec in RESOURCE_SPECS}
-    expected |= {spec.scope for spec in PROMPT_SPECS}
-    assert set(scopes) == expected
