@@ -2,7 +2,8 @@
 
 Wraps the same RunRequest in a docker invocation that adds the isolation
 the subprocess runner cannot: no network, a read-only root filesystem,
-and hard CPU, memory, and process caps enforced by the container runtime.
+and hard CPU-time, memory, and process caps enforced by the container
+runtime.
 The scratch directory is the only writable mount. Building the argv is
 kept separate from running it so the composition is unit-testable without
 a container runtime present.
@@ -37,7 +38,11 @@ class ContainerRunner:
             "--tmpfs",
             "/tmp",  # noqa: S108  # container-internal tmpfs mount, not a host path
             f"--memory={request.memory_bytes}",
-            f"--cpus={max(1, request.cpu_seconds)}",
+            # cpu_seconds is a time budget, so it maps to RLIMIT_CPU via
+            # ulimit exactly as in the subprocess runner; --cpus takes a
+            # core count and would turn seconds into parallelism.
+            "--cpus=1",
+            f"--ulimit=cpu={max(1, request.cpu_seconds)}",
             "--pids-limit=128",
             "--volume",
             f"{request.cwd}:/work",
