@@ -14,6 +14,8 @@ from arrowhead.authz.policy import (
     KIND_DOCUMENT,
     KIND_FILE,
     KIND_PREFIX,
+    KIND_REPO_FILE,
+    KIND_REPO_PREFIX,
     KIND_TABLE,
     KIND_TABLELESS,
     KIND_URL,
@@ -34,6 +36,8 @@ _RESOURCE_NOUN = {
     KIND_TABLE: "table",
     KIND_TABLELESS: "query",
     KIND_FILE: "file",
+    KIND_REPO_FILE: "file",
+    KIND_REPO_PREFIX: "path",
 }
 
 
