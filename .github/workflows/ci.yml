@@ -82,6 +82,9 @@ jobs:
           image-ref: arrowhead:ci
           severity: CRITICAL,HIGH
           exit-code: "1"
+          # Gate on findings a rebuild can actually fix; base-image CVEs
+          # Debian has not patched yet would otherwise block every change.
+          ignore-unfixed: true
 
   security:
     runs-on: ubuntu-latest
