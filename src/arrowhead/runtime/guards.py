@@ -181,7 +181,9 @@ def guard_tool(spec, guards: Guards):
 
 
 def guard_resource(spec, guards: Guards):
-    """Wrap a resource handler; the kill switch keys on the concrete URI."""
+    """Wrap a resource handler; the kill switch keys on the template and
+    on the concrete URI, so disabling a template blocks every read it
+    expands to as well as hiding it from listings."""
     fn = spec.load()
 
     @functools.wraps(fn)
@@ -191,6 +193,7 @@ def guard_resource(spec, guards: Guards):
             {"event": "read_resource", "resource": describe_resource(uri)},
             "resource:read",
         ):
+            refuse_if_disabled(spec.uri, guards.disabled)
             refuse_if_disabled(uri, guards.disabled)
             if guards.rate_limiter is not None:
                 await guards.rate_limiter.enforce("resource:read")
