@@ -13,7 +13,10 @@ import asyncio
 import time
 
 from arrowhead.exec.base import RunOutcome, RunRequest
-from arrowhead.exec.subprocess_runner import _decode_capped, _kill_group
+from arrowhead.exec.subprocess_runner import (
+    _communicate_capped,
+    _decode_capped,
+)
 
 
 class ContainerRunner:
@@ -61,16 +64,12 @@ class ContainerRunner:
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
-        timed_out = False
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(request.stdin.encode("utf-8")),
-                timeout=request.wall_seconds,
-            )
-        except TimeoutError:
-            timed_out = True
-            _kill_group(process)
-            stdout, stderr = await process.communicate()
+        stdout, stderr, timed_out = await _communicate_capped(
+            process,
+            request.stdin.encode("utf-8"),
+            request.wall_seconds,
+            request.max_output_bytes,
+        )
         duration_ms = round((time.perf_counter() - started) * 1000, 2)
         out_text, out_truncated = _decode_capped(
             stdout, request.max_output_bytes
