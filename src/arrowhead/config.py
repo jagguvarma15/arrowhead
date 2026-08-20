@@ -342,6 +342,7 @@ class Settings(BaseSettings):
     exec_max_output_bytes: int = 200_000
     exec_max_code_bytes: int = 100_000
     exec_max_copy_bytes: int = 50_000_000
+    exec_copy_max_files: int = 500
     # The test command run_tests executes inside the scratch copy, split
     # shell-style into an argv; empty refuses run_tests.
     exec_test_command: str = ""
