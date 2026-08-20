@@ -1,9 +1,12 @@
 # Security
 
 This document maps each mitigation in Arrowhead to the vulnerability class it
-closes. The three tools were chosen because they correspond to the three most
-common flaws found in real MCP servers; the surrounding layers (auth, rate
-limiting, audit logging) close the fourth, missing authentication.
+closes. The three core tools were chosen because they correspond to the three
+most common flaws found in real MCP servers; the surrounding layers (auth, rate
+limiting, audit logging) close the fourth, missing authentication. Every family
+that has been added since &mdash; documents, data connectors, repo
+intelligence, assist, exec, context, tasks &mdash; registers behind the same
+guard chain, so the same posture covers all of them.
 
 ## Server-side request forgery — `safe_fetch`
 
@@ -185,7 +188,7 @@ to an under-privileged caller. The MUST-level discovery path (401 with
 `WWW-Authenticate` and `resource_metadata` on a missing or invalid token) is
 still served.
 
-## Data connectors: `sql_query`, `vector_search`
+## Data connectors: `sql_query`, `vector_search`, `vector_query`, `hybrid_query`, `doc_index`
 
 The SQL connector never runs the caller's raw text. A statement is parsed in the
 database's own dialect (derived from the DSN, or set explicitly and validated at
@@ -218,11 +221,46 @@ server-side, never an argument, so one tenant cannot read another's rows even
 by asking. The query embedding is bound as a parameter, and `k`, row, byte, and
 dimension counts are all bounded.
 
+`vector_query` and `hybrid_query` are the text-facing retrieval tools: the
+caller's query is embedded server-side through the configured provider, and
+authorization runs before embedding, so a denied caller can never trigger an
+outbound embedding request. The embedding client posts through the same
+SSRF-guarded, redirect-refusing, egress-allowlisted path as `safe_fetch`, with
+the endpoint resolved once and pinned. `hybrid_query` fuses the vector ranking
+with Postgres full-text rank inside one statement whose only interpolated names
+are allow-listed or configured identifiers; the query, language, tenant, and
+limits are all bound parameters.
+
+`doc_index` is the ingestion tool and is governed separately on every axis: it
+requires the `ingest` action, which the default policy denies; it writes
+through `ARROWHEAD_VECTOR_WRITE_DSN`, a credential separate from the read-only
+`sql_dsn`, so the read tools cannot write even if a guard failed; and the
+tenant it writes under is the authenticated caller returned by authorization,
+never an argument. Chunk ids are deterministic hashes of tenant, source, and
+index, so a re-index replaces a document's chunks in place and cannot collide
+across tenants.
+
+## Repo intelligence: `code_search`, `code_read`, `symbol_map`, `dependency_graph`
+
+The coding tools read a second jail, separate from the document corpus: a
+read-only source tree under `ARROWHEAD_REPO_ROOT`. The same traversal rules as
+`read_file` apply (relative paths, no parent components, resolved paths must
+stay inside the root), and the store adds controls tuned to source trees:
+version-control and dependency directories (`.git`, `node_modules`, and the
+like) are pruned from every walk so their contents are unreachable, binary
+files are refused by content sniff, an extension allowlist bounds what may be
+read (enforced identically by `code_read` and `code_explain`), and per-file
+and per-walk caps bound every operation. `code_search` filters every candidate
+file through the caller's per-file read authorization exactly as `doc_search`
+does for documents, and both run the same shared, ReDoS-guarded matcher.
+`symbol_map` and `dependency_graph` parse with the stdlib compiler (or the
+optional tree-sitter backend), never by executing repository code.
+
 ## Resources, prompts, and completions
 
 The non-tool primitives are not a bypass. A resource read runs the same
 per-resource authorization and content sanitization as the equivalent tool call,
-so `doc://{path}` is exactly as safe as `doc_read`. Prompts reference documents
+so `doc://{+path}` is exactly as safe as `doc_read`. Prompts reference documents
 by resource URI or by a tool call rather than inlining corpus text, and sanitize
 their arguments, so the instruction channel cannot carry untrusted content.
 Completion candidates pass the same per-document read authorization as search,
@@ -245,16 +283,18 @@ cancel only its own tasks and a handle it does not own is reported as simply not
 found. The task registry is in process, so a task is visible only on the
 instance that created it; a multi-instance deployment would back it with the
 shared rate-limit store. The wire-level tasks extension is not adopted, because
-the stable SDK the server runs on does not speak it (see the specification
-target below).
+the stable SDK the server runs on does not speak it (see "MCP specification
+and the request path" below).
 
 ## Abuse controls and observability
 
 - **Rate limiting** (`security/rate_limit.py`): per-caller, per-tool token
   buckets with cost-appropriate ceilings. Backed by Redis when configured so
   limits hold across replicas. Exceeding a limit is a clean error, not a crash.
-- **Kill switch** (`security/kill_switch.py`): any tool can be taken out of
-  service through configuration without a code change.
+- **Kill switch** (`security/kill_switch.py`): any tool, prompt, or resource
+  can be taken out of service through configuration without a code change.
+  Disabling a resource template (`doc://{+path}`) both hides it from listings
+  and refuses every concrete read it expands to.
 - **Audit log** (`observability/audit_log.py`): one structured JSON line per
   call on stdout with caller identity, tool, argument *shapes* (never values),
   status, and latency, for the platform's log drain. Redaction happens at the
@@ -325,29 +365,42 @@ unchanged.
 
 ### Sandboxed execution guarantees, and non-guarantees
 
-The `exec` family is off by default and, even when `ARROWHEAD_EXEC_ENABLED` is
-set, denied by the default authorization policy: a deployment opts in twice, by
-the flag and by granting the `execute` action. The default subprocess runner
-runs each command in a fresh process group with a scrubbed environment (no
-`ARROWHEAD_` configuration, no ambient secrets), bounds CPU, memory, wall time,
-output, and process count, executes an explicit argv rather than a shell, and
-secret-scans and redacts output before it leaves. What it does **not** do: it
-does not block network egress or filesystem reads beyond ordinary OS
-permissions. A deployment that needs those isolated uses the container runner
-(`ARROWHEAD_EXEC_RUNNER=container`), which adds `--network none`, a read-only
-root filesystem, and container-enforced resource caps, or an external sandbox.
-`RLIMIT_AS` is unreliable on macOS, so memory bounding is best effort there and
-dependable on Linux.
+The `exec` family (`run_snippet`, `run_tests`) is off by default and, even when
+`ARROWHEAD_EXEC_ENABLED` is set, denied by the default authorization policy: a
+deployment opts in twice, by the flag and by granting the `execute` action. The
+default subprocess runner runs each command in a fresh process group with a
+scrubbed environment (no `ARROWHEAD_` configuration, no ambient secrets),
+bounds CPU, memory, wall time, output, and process count, executes an explicit
+argv rather than a shell, and secret-scans and redacts output before it leaves.
+Output beyond the byte cap kills the run immediately, so a flooding child can
+neither fill server memory nor hold its wall clock open. `run_tests` executes
+only inside a scratch copy of the authorized subtree (bounded by its own file
+and byte caps), so a test command can never write into the real repository.
+What the subprocess runner does **not** do: it does not block network egress or
+filesystem reads beyond ordinary OS permissions. A deployment that needs those
+isolated uses the container runner (`ARROWHEAD_EXEC_RUNNER=container`), which
+adds `--network none`, a read-only root filesystem, a pids limit, a memory cap,
+and the same CPU-time budget enforced as a ulimit inside the container, or an
+external sandbox. `RLIMIT_AS` is unreliable on macOS, so memory bounding is
+best effort there and dependable on Linux.
 
-### Context packing
+### Context packing and working sets
 
-`pack_context` never returns content that bypasses the guards: every pinned
-working-set item is re-authorized at pack time (a grant can change after
+`pack_context` never returns content that bypasses the guards: the pack itself
+is authorized at the boundary as a search over the corpus namespace, every
+pinned working-set item is re-authorized at pack time (a grant can change after
 pinning), every snippet is secret-scanned and redacted before it is packed, and
 each is wrapped in per-snippet untrusted framing with a random marker the
 content cannot forge. The bundle is capped at the token budget, and an item that
 would exceed it is dropped with a truncation flag rather than blowing the
 budget.
+
+Working sets are the packer's write surface. `workingset_update` authorizes
+every item at pin time under the same per-resource check that would govern
+reading it, validates kinds and identifiers, and stores the set keyed by the
+caller's verified identity, so another owner's set reads as simply not found.
+The registry is bounded twice, per owner and globally, so neither one caller
+nor many distinct callers can grow server memory without limit.
 
 ### Tool integrity
 
