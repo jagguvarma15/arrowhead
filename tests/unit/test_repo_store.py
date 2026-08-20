@@ -12,13 +12,6 @@ from arrowhead.repo.store import (
 )
 
 
-@pytest.fixture
-def repo(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARROWHEAD_REPO_ROOT", str(tmp_path))
-    get_settings.cache_clear()
-    return tmp_path
-
-
 def store():
     return build_repo_store(get_settings())
 
