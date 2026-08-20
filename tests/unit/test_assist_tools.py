@@ -116,6 +116,15 @@ async def test_rerank_survives_a_hostile_answer(scripted_provider):
     assert result["order"] == [2, 0, 1]
 
 
+async def test_rerank_reports_an_unusable_answer(scripted_provider):
+    scripted_provider["answer"] = "I refuse to rank these passages."
+    result = await rerank("query", ["a", "b", "c"])
+    # An answer contributing no index falls back to the original order and
+    # says so, instead of reporting a model ranking that never happened.
+    assert result["order"] == [0, 1, 2]
+    assert result["model_answered"] is False
+
+
 async def test_rerank_bounds_candidates(scripted_provider):
     with pytest.raises(ToolError):
         await rerank("query", [])
