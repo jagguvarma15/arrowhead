@@ -11,3 +11,6 @@ build/
 sandbox/*
 !sandbox/.gitkeep
 !sandbox/welcome.txt
+/documents/
+/exec-scratch/
+/repo/
