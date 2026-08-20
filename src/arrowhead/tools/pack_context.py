@@ -33,7 +33,7 @@ from arrowhead.authz.policy import (
     Resource,
 )
 from arrowhead.config import get_settings
-from arrowhead.content.provenance import UNTRUSTED_NOTICE
+from arrowhead.content.provenance import UNTRUSTED_NOTICE, frame_untrusted
 from arrowhead.content.render import render_document
 from arrowhead.content.text_safe import sanitize_text
 from arrowhead.errors import ToolError
@@ -91,7 +91,7 @@ async def pack_context(
     candidates: list[dict] = []
     if working_set:
         candidates.extend(await _resolve_pinned(working_set, subject, settings))
-    candidates.extend(await _retrieve(query, subject, settings))
+    candidates.extend(await _retrieve(query))
 
     return _pack(candidates, budget, settings)
 
@@ -121,17 +121,35 @@ async def _resolve_pinned(name: str, subject: str, settings) -> list[dict]:
     if entry is None:
         return []
     authorizer = get_authorizer()
+    items = list(entry.items.values())
+    return await anyio.to_thread.run_sync(
+        _render_all_pinned, items, subject, authorizer, settings
+    )
+
+
+def _render_all_pinned(items, subject, authorizer, settings) -> list[dict]:
+    """Render the pinned items in one worker-thread hop, stores built once."""
+    from arrowhead.repo.store import build_repo_store
+
+    doc_store = None
+    repo_store = None
     resolved: list[dict] = []
-    for item in entry.items.values():
-        rendered = await anyio.to_thread.run_sync(
-            _render_pinned, item, subject, authorizer, settings
-        )
+    for item in items:
+        if item.kind == KIND_DOC:
+            if doc_store is None:
+                doc_store = build_document_store(settings)
+            store = doc_store
+        else:
+            if repo_store is None:
+                repo_store = build_repo_store(settings)
+            store = repo_store
+        rendered = _render_pinned(item, subject, authorizer, store, settings)
         if rendered is not None:
             resolved.append(rendered)
     return resolved
 
 
-def _render_pinned(item, subject, authorizer, settings) -> dict | None:
+def _render_pinned(item, subject, authorizer, store, settings) -> dict | None:
     kind = KIND_DOCUMENT if item.kind == KIND_DOC else KIND_REPO_FILE
     if not authorizer.authorize(
         subject, ACTION_READ, Resource(kind=kind, identifier=item.identifier)
@@ -139,15 +157,14 @@ def _render_pinned(item, subject, authorizer, settings) -> dict | None:
         return None
     from arrowhead.content.json_safe import JSONSafetyError
     from arrowhead.content.text_safe import TextSafetyError
-    from arrowhead.repo.store import RepoStoreError, build_repo_store
+    from arrowhead.repo.store import RepoStoreError
 
     try:
         if item.kind == KIND_DOC:
-            store = build_document_store(settings)
             data = store.read_bytes(item.identifier)
             content, _fmt = render_document(item.identifier, data, settings)
         else:
-            content = build_repo_store(settings).read_text(item.identifier)
+            content = store.read_text(item.identifier)
     except (
         DocumentStoreError,
         RepoStoreError,
@@ -166,7 +183,7 @@ def _render_pinned(item, subject, authorizer, settings) -> dict | None:
     }
 
 
-async def _retrieve(query: str, subject: str, settings) -> list[dict]:
+async def _retrieve(query: str) -> list[dict]:
     """Retrieved snippets for the query, through the standalone search path.
 
     doc_search already authorizes per document and sanitizes each snippet,
@@ -217,7 +234,7 @@ def _pack(candidates: list[dict], budget: int, settings) -> PackedContext:
             continue
         used_tokens += tokens
         redactions += hits
-        marker = _framed(redacted)
+        framed = frame_untrusted(redacted)
         snippets.append(
             {
                 "source": sanitize_text(candidate["source"]),
@@ -227,7 +244,7 @@ def _pack(candidates: list[dict], budget: int, settings) -> PackedContext:
                     redacted.encode("utf-8")
                 ).hexdigest(),
                 "retrieved_at": retrieved_at,
-                "content": marker,
+                "content": framed,
             }
         )
     return {
@@ -241,10 +258,3 @@ def _pack(candidates: list[dict], budget: int, settings) -> PackedContext:
 
 def _estimate_tokens(text: str) -> int:
     return -(-len(text) // _CHARS_PER_TOKEN)
-
-
-def _framed(content: str) -> str:
-    import secrets
-
-    marker = secrets.token_hex(8)
-    return f"<<UNTRUSTED-{marker}>>\n{content}\n<<END-UNTRUSTED-{marker}>>"
