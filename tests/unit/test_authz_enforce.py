@@ -43,6 +43,22 @@ def test_read_shared_under_default_policy(monkeypatch):
     assert authorize_action(ACTION_READ, doc("bob/n.txt")) == "alice"
 
 
+def test_repo_denials_name_the_resource_kind(monkeypatch):
+    monkeypatch.setenv("ARROWHEAD_AUTH_ENABLED", "true")
+    get_authorizer.cache_clear()
+    set_identity(monkeypatch, "alice")
+    # Repo denials read like their document counterparts instead of the
+    # generic "this resource".
+    with pytest.raises(AuthorizationError, match="this file"):
+        authorize_action(
+            ACTION_WRITE, Resource(kind="repo_file", identifier="src/app.py")
+        )
+    with pytest.raises(AuthorizationError, match="this path"):
+        authorize_action(
+            ACTION_WRITE, Resource(kind="repo_prefix", identifier="src/")
+        )
+
+
 def test_denial_message_does_not_echo_resource(monkeypatch):
     monkeypatch.setenv("ARROWHEAD_AUTH_ENABLED", "true")
     get_authorizer.cache_clear()
