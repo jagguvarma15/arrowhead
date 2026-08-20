@@ -38,6 +38,18 @@ def _csv_int_frozenset(raw: str) -> frozenset[int]:
     return frozenset(int(item.strip()) for item in raw.split(",") if item.strip())
 
 
+# Database names mapped to the sqlglot dialect that parses them. Shared by
+# the sql_dialect validator and the connectors' DSN-scheme lookup, so the
+# two can never disagree about what canonical dialect a name means.
+SQL_DIALECT_ALIASES = {
+    "postgresql": "postgres",
+    "postgres": "postgres",
+    "sqlite": "sqlite",
+    "mysql": "mysql",
+    "mariadb": "mysql",
+}
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ARROWHEAD_",
@@ -494,14 +506,7 @@ class Settings(BaseSettings):
         """
         if not value.strip():
             return ""
-        aliases = {
-            "postgresql": "postgres",
-            "postgres": "postgres",
-            "sqlite": "sqlite",
-            "mysql": "mysql",
-            "mariadb": "mysql",
-        }
-        canonical = aliases.get(value.strip().lower())
+        canonical = SQL_DIALECT_ALIASES.get(value.strip().lower())
         if canonical is None:
             raise ValueError(
                 "sql_dialect must be one of postgres, sqlite, mysql "
