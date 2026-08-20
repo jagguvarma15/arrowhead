@@ -126,7 +126,9 @@ async def doc_index(collection: str, path_prefix: str = "") -> IndexResult:
         raise ToolError(str(exc)) from exc
     return {
         "collection": collection,
-        "files_indexed": len(prepared),
+        # Every gathered file was indexed this run, whether its chunks were
+        # rewritten or reused; the chunk counts carry the change detail.
+        "files_indexed": len(gathered),
         "chunks_written": written,
         "chunks_reused": reused,
         "truncated": truncated,
