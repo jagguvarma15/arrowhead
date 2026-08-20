@@ -26,12 +26,46 @@ def fresh_settings():
     get_authorizer.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def fresh_registry():
+    """The in-process working set registry must not leak between tests."""
+    from arrowhead.workingsets import reset_registry
+
+    reset_registry()
+    yield
+    reset_registry()
+
+
 @pytest.fixture
 def jail(tmp_path, monkeypatch):
     """Point the read_file jail at a temporary directory."""
     monkeypatch.setenv("ARROWHEAD_JAIL_ROOT", str(tmp_path))
     get_settings.cache_clear()
     return tmp_path
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    """Point the repo jail at a temporary directory.
+
+    A test file that needs seed content layers its own fixture on this
+    one, so the environment wiring and the cache clear live here only.
+    """
+    monkeypatch.setenv("ARROWHEAD_REPO_ROOT", str(tmp_path))
+    get_settings.cache_clear()
+    return tmp_path
+
+
+@pytest.fixture
+def configure_env(monkeypatch):
+    """Set ARROWHEAD_ variables and clear the settings cache in one step."""
+
+    def configure(**env):
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        get_settings.cache_clear()
+
+    return configure
 
 
 @pytest.fixture
