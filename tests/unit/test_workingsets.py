@@ -90,6 +90,26 @@ async def test_item_count_is_bounded(docs_and_repo, monkeypatch):
         )
 
 
+def test_registry_is_bounded_across_owners():
+    from arrowhead.workingsets import (
+        _MAX_OWNERS,
+        WorkingSetItem,
+        WorkingSetRegistry,
+    )
+
+    registry = WorkingSetRegistry(max_sets=2, max_items=5)
+    item = WorkingSetItem(kind="doc", identifier="notes.md")
+    # Each owner stays under its own cap, but many distinct owners must
+    # not grow the registry without limit: the least recently used sets
+    # are evicted once the global bound is reached.
+    for i in range(_MAX_OWNERS * 4):
+        registry.pin(f"owner-{i}", "a", [item])
+        registry.pin(f"owner-{i}", "b", [item])
+    assert len(registry._sets) <= 2 * _MAX_OWNERS
+    assert registry.get("owner-0", "a") is None
+    assert registry.get(f"owner-{_MAX_OWNERS * 4 - 1}", "b") is not None
+
+
 async def test_pinning_authorizes_each_item(docs_and_repo, monkeypatch):
     from arrowhead.authz.enforce import get_authorizer
 
