@@ -9,13 +9,6 @@ from arrowhead.tools.workingset import workingset_get, workingset_update
 from arrowhead.workingsets import reset_registry
 
 
-@pytest.fixture(autouse=True)
-def fresh_registry():
-    reset_registry()
-    yield
-    reset_registry()
-
-
 @pytest.fixture
 def docs_and_repo(tmp_path, monkeypatch):
     docs = tmp_path / "docs"
