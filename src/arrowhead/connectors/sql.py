@@ -39,7 +39,7 @@ from arrowhead.authz.policy import (
     KIND_TABLELESS,
     Resource,
 )
-from arrowhead.config import get_settings
+from arrowhead.config import SQL_DIALECT_ALIASES, get_settings
 from arrowhead.content.provenance import ProvenancedResult, wrap_content
 from arrowhead.content.text_safe import sanitize_text
 from arrowhead.errors import ToolError
@@ -215,14 +215,9 @@ def _referenced_tables(root) -> frozenset[str]:
 
 
 # SQLAlchemy URL backends mapped to the sqlglot dialect that parses them, so
-# the guard vets and regenerates a query in the database's own dialect.
-_DSN_DIALECTS = {
-    "postgresql": "postgres",
-    "postgres": "postgres",
-    "sqlite": "sqlite",
-    "mysql": "mysql",
-    "mariadb": "mysql",
-}
+# the guard vets and regenerates a query in the database's own dialect. The
+# table itself is shared with the sql_dialect validator in config.
+_DSN_DIALECTS = SQL_DIALECT_ALIASES
 
 
 def _dialect_from_dsn(dsn: str) -> str | None:

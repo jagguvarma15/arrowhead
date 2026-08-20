@@ -21,8 +21,3 @@ def refuse_if_disabled(name: str, disabled: frozenset[str]) -> None:
     """Raise the refusal when the operator disabled this component."""
     if name in disabled:
         raise ToolDisabledError(f"{name} is temporarily disabled by the operator")
-
-
-def filter_disabled(items, disabled: frozenset[str], key) -> list:
-    """Drop disabled components from a listing, preserving order."""
-    return [item for item in items if key(item) not in disabled]

@@ -26,6 +26,15 @@ RUN uv sync --frozen --no-dev --extra sql --extra postgres
 
 FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de AS runtime
 
+# Apply the distribution's security fixes that landed after the pinned
+# base was built, so a CVE Debian has already patched does not ship just
+# because the upstream image has not been rebuilt yet. The digest pin
+# still governs everything else in the base.
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Unprivileged user; the app never needs root.
 RUN groupadd --system arrowhead \
     && useradd --system --gid arrowhead --home /app arrowhead

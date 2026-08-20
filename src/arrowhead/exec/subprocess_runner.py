@@ -4,9 +4,11 @@ The command runs in a fresh process group with a scrubbed environment, so
 no ARROWHEAD_ configuration and no ambient secrets are inherited. CPU
 time, address space, file size, open files, and process count are capped
 through setrlimit in a preexec hook, wall time is enforced by killing the
-whole process group, and output is read only up to the cap and marked
-truncated beyond it. The command is always an explicit argv, never a
-shell string, so there is no shell to inject into.
+whole process group, and output is read incrementally: the moment either
+stream exceeds the cap the run is killed and marked truncated, so a
+flooding child can neither fill server memory nor hold the wall clock
+open. The command is always an explicit argv, never a shell string, so
+there is no shell to inject into.
 
 What this runner does NOT do: it does not block network egress or
 filesystem reads beyond ordinary OS permissions. A deployment that needs
@@ -49,16 +51,12 @@ class SubprocessRunner:
             start_new_session=True,
             preexec_fn=_apply_limits(request),
         )
-        timed_out = False
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(request.stdin.encode("utf-8")),
-                timeout=request.wall_seconds,
-            )
-        except TimeoutError:
-            timed_out = True
-            _kill_group(process)
-            stdout, stderr = await process.communicate()
+        stdout, stderr, timed_out = await _communicate_capped(
+            process,
+            request.stdin.encode("utf-8"),
+            request.wall_seconds,
+            request.max_output_bytes,
+        )
         duration_ms = round((time.perf_counter() - started) * 1000, 2)
         out_text, out_truncated = _decode_capped(
             stdout, request.max_output_bytes
@@ -114,6 +112,60 @@ def _kill_group(process) -> None:
         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
+
+
+async def _communicate_capped(
+    process, stdin_bytes: bytes, wall_seconds: float, cap: int
+) -> tuple[bytes, bytes, bool]:
+    """Feed stdin and collect both streams, stopping runaway output early.
+
+    Each stream is read in chunks and only the first cap + 1 bytes are
+    kept; the moment either stream exceeds the cap the whole process
+    group is killed. A cap kill leaves timed_out False and surfaces the
+    signal as a negative exit code; only the wall clock sets timed_out.
+    """
+
+    async def feed() -> None:
+        try:
+            process.stdin.write(stdin_bytes)
+            await process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            process.stdin.close()
+
+    async def read_capped(stream) -> bytes:
+        chunks: list[bytes] = []
+        collected = 0
+        while True:
+            chunk = await stream.read(65536)
+            if not chunk:
+                return b"".join(chunks)
+            if collected <= cap:
+                keep = chunk[: cap + 1 - collected]
+                chunks.append(keep)
+                collected += len(keep)
+            if collected > cap:
+                _kill_group(process)
+
+    feeder = asyncio.ensure_future(feed())
+    timed_out = False
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            asyncio.gather(
+                read_capped(process.stdout), read_capped(process.stderr)
+            ),
+            timeout=wall_seconds,
+        )
+    except TimeoutError:
+        timed_out = True
+        _kill_group(process)
+        stdout, stderr = await asyncio.gather(
+            read_capped(process.stdout), read_capped(process.stderr)
+        )
+    await asyncio.gather(feeder, return_exceptions=True)
+    await process.wait()
+    return stdout, stderr, timed_out
 
 
 def _decode_capped(data: bytes, cap: int) -> tuple[str, bool]:

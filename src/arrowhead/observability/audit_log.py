@@ -50,6 +50,15 @@ def describe_resource(uri) -> str:
     return f"{scheme}://str[{len(rest)}]"
 
 
+def _emit(
+    record: dict, metric_label: str, status: str, duration_ms: float
+) -> None:
+    """Serialize one audit line and record its metric, the same way for
+    every path that produces one."""
+    logger.info(json.dumps(record, sort_keys=True))
+    record_tool_call(metric_label, status, duration_ms)
+
+
 def audit_event(
     event: str, *, status: str, duration_ms: float, metric_label: str, **fields
 ) -> None:
@@ -61,8 +70,7 @@ def audit_event(
         "status": status,
         "duration_ms": duration_ms,
     }
-    logger.info(json.dumps(record, sort_keys=True))
-    record_tool_call(metric_label, status, duration_ms)
+    _emit(record, metric_label, status, duration_ms)
 
 
 @asynccontextmanager
@@ -96,5 +104,4 @@ async def audited(base: dict, metric_label: str):
         }
         if error_type is not None:
             record["error_type"] = error_type
-        logger.info(json.dumps(record, sort_keys=True))
-        record_tool_call(metric_label, status, duration_ms)
+        _emit(record, metric_label, status, duration_ms)

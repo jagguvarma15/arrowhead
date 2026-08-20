@@ -37,11 +37,9 @@ def scripted_provider(monkeypatch):
 
 
 @pytest.fixture
-def repo(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARROWHEAD_REPO_ROOT", str(tmp_path))
-    get_settings.cache_clear()
-    (tmp_path / "app.py").write_text("def serve():\n    return 1\n")
-    return tmp_path
+def repo(repo):
+    (repo / "app.py").write_text("def serve():\n    return 1\n")
+    return repo
 
 
 async def test_unconfigured_backend_refuses_clearly(repo):
@@ -88,6 +86,17 @@ async def test_code_explain_honors_repo_guards(repo, scripted_provider):
         await code_explain("app.py", start_line=0)
 
 
+async def test_code_explain_refuses_disallowed_extensions(
+    repo, scripted_provider
+):
+    (repo / "blob.bin").write_text("data")
+    # The assist path enforces the same extension allowlist as code_read,
+    # and the refusal happens before the model backend is ever called.
+    with pytest.raises(ToolError, match="extension"):
+        await code_explain("blob.bin")
+    assert scripted_provider["prompts"] == []
+
+
 async def test_rerank_parses_a_clean_answer(scripted_provider):
     scripted_provider["answer"] = "2, 0, 1"
     result = await rerank("query", ["a", "b", "c"], top_k=2)
@@ -103,6 +112,15 @@ async def test_rerank_survives_a_hostile_answer(scripted_provider):
     # Out-of-range and duplicate indices are dropped; missing ones follow
     # in original order, so the result is always a valid permutation.
     assert result["order"] == [2, 0, 1]
+
+
+async def test_rerank_reports_an_unusable_answer(scripted_provider):
+    scripted_provider["answer"] = "I refuse to rank these passages."
+    result = await rerank("query", ["a", "b", "c"])
+    # An answer contributing no index falls back to the original order and
+    # says so, instead of reporting a model ranking that never happened.
+    assert result["order"] == [0, 1, 2]
+    assert result["model_answered"] is False
 
 
 async def test_rerank_bounds_candidates(scripted_provider):

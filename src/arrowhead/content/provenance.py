@@ -35,6 +35,17 @@ class ProvenancedResult(TypedDict):
     content: str
 
 
+def frame_untrusted(content: str) -> str:
+    """Wrap content in randomized untrusted-data delimiters.
+
+    The marker is random per call, so the framed content cannot forge its
+    own closing delimiter. Every place a snippet needs the framing without
+    the full provenance envelope uses this one function.
+    """
+    marker = secrets.token_hex(8)
+    return f"<<UNTRUSTED-{marker}>>\n{content}\n<<END-UNTRUSTED-{marker}>>"
+
+
 @dataclass(frozen=True)
 class ProvenancedContent:
     """Sanitized content plus the provenance a client needs to frame it."""
@@ -46,9 +57,6 @@ class ProvenancedContent:
     trust_level: str = "untrusted"
 
     def to_dict(self) -> dict:
-        marker = secrets.token_hex(8)
-        begin = f"<<UNTRUSTED-{marker}>>"
-        end = f"<<END-UNTRUSTED-{marker}>>"
         return {
             "notice": UNTRUSTED_NOTICE,
             "metadata": {
@@ -61,7 +69,7 @@ class ProvenancedContent:
                 "trust_level": self.trust_level,
                 "retrieved_at": self.retrieved_at,
             },
-            "content": f"{begin}\n{self.content}\n{end}",
+            "content": frame_untrusted(self.content),
         }
 
 

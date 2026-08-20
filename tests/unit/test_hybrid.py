@@ -14,12 +14,6 @@ from arrowhead.errors import ToolError
 POSTGRES = "postgresql+asyncpg://u@h/db"
 
 
-def _configure(monkeypatch, **env):
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    get_settings.cache_clear()
-
-
 async def test_unconfigured_connector_refuses(monkeypatch):
     monkeypatch.delenv("ARROWHEAD_SQL_DSN", raising=False)
     get_settings.cache_clear()
@@ -29,17 +23,16 @@ async def test_unconfigured_connector_refuses(monkeypatch):
         await hybrid_query("doc_chunks", "refunds")
 
 
-async def test_non_postgres_dsn_refuses(monkeypatch):
-    _configure(monkeypatch, ARROWHEAD_SQL_DSN="sqlite+aiosqlite:///x.db")
+async def test_non_postgres_dsn_refuses(configure_env):
+    configure_env(ARROWHEAD_SQL_DSN="sqlite+aiosqlite:///x.db")
     from arrowhead.connectors.hybrid import hybrid_query
 
     with pytest.raises(ToolError, match="PostgreSQL"):
         await hybrid_query("doc_chunks", "refunds")
 
 
-async def test_empty_query_refused(monkeypatch):
-    _configure(
-        monkeypatch,
+async def test_empty_query_refused(configure_env):
+    configure_env(
         ARROWHEAD_SQL_DSN=POSTGRES,
         ARROWHEAD_PGVECTOR_COLLECTIONS="doc_chunks",
     )
@@ -49,9 +42,8 @@ async def test_empty_query_refused(monkeypatch):
         await hybrid_query("doc_chunks", "   ")
 
 
-async def test_unknown_collection_refused(monkeypatch):
-    _configure(
-        monkeypatch,
+async def test_unknown_collection_refused(configure_env):
+    configure_env(
         ARROWHEAD_SQL_DSN=POSTGRES,
         ARROWHEAD_PGVECTOR_COLLECTIONS="allowed",
     )
@@ -61,21 +53,22 @@ async def test_unknown_collection_refused(monkeypatch):
         await hybrid_query("other", "refunds")
 
 
-async def test_no_collections_configured_refused(monkeypatch):
-    _configure(monkeypatch, ARROWHEAD_SQL_DSN=POSTGRES)
+async def test_no_collections_configured_refused(configure_env):
+    configure_env(ARROWHEAD_SQL_DSN=POSTGRES)
     from arrowhead.connectors.hybrid import hybrid_query
 
     with pytest.raises(ToolError, match="no vector collections"):
         await hybrid_query("doc_chunks", "refunds")
 
 
-async def test_unauthorized_caller_never_reaches_the_embedder(monkeypatch):
+async def test_unauthorized_caller_never_reaches_the_embedder(
+    configure_env, monkeypatch
+):
     """Authorization runs before embedding, so a denied caller cannot
     trigger an outbound embedding request."""
     from arrowhead.authz.enforce import get_authorizer
 
-    _configure(
-        monkeypatch,
+    configure_env(
         ARROWHEAD_SQL_DSN=POSTGRES,
         ARROWHEAD_PGVECTOR_COLLECTIONS="doc_chunks",
         ARROWHEAD_AUTH_ENABLED="true",
@@ -101,12 +94,11 @@ async def test_unauthorized_caller_never_reaches_the_embedder(monkeypatch):
     get_authorizer.cache_clear()
 
 
-def test_fusion_sql_binds_every_caller_value(monkeypatch):
+def test_fusion_sql_binds_every_caller_value(configure_env):
     """The statement interpolates only allow-listed or configured
     identifiers; the embedding, query, language, tenant, and limits are
     bound parameters."""
-    _configure(
-        monkeypatch,
+    configure_env(
         ARROWHEAD_SQL_DSN=POSTGRES,
         ARROWHEAD_PGVECTOR_COLLECTIONS="doc_chunks",
     )

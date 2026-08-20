@@ -1,8 +1,9 @@
 """Run an in-process tool call as a verified caller.
 
-Over HTTP the resource server verifies a bearer token and FastMCP exposes it
-as the current access token, from which the caller identity, the rate-limit
-key, and the per-resource authorization decision all derive. A direct
+Over HTTP the resource server verifies a bearer token and the SDK's auth
+context exposes it as the current access token, from which the caller
+identity, the rate-limit key, and the per-resource authorization decision
+all derive. A direct
 in-process call has no HTTP request and therefore no such token, so those
 controls would treat the caller as anonymous and every scoped tool would be
 denied.

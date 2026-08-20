@@ -18,7 +18,7 @@ specific document.
 from mcp.server.auth.middleware.auth_context import get_access_token
 
 from arrowhead.errors import ToolError
-from arrowhead.tools.catalog import PROMPT_SPECS, RESOURCE_SPECS, TOOL_SPECS
+from arrowhead.tools.catalog import TOOL_SPECS
 
 # Derived from the catalog so a tool's scope is declared in exactly one place.
 TOOL_SCOPES: dict[str, str] = {spec.name: spec.scope for spec in TOOL_SPECS}
@@ -48,11 +48,3 @@ def require_scope(scope: str, component: str, kind: str = "tool") -> None:
     """
     if not has_scope(scope):
         raise ToolError(f"Unknown {kind}: {component}")
-
-
-def supported_scopes() -> list[str]:
-    """All scopes this server understands, for resource metadata."""
-    scopes = {spec.scope for spec in TOOL_SPECS}
-    scopes |= {spec.scope for spec in RESOURCE_SPECS}
-    scopes |= {spec.scope for spec in PROMPT_SPECS}
-    return sorted(scopes)

@@ -36,9 +36,8 @@ async def code_read(
     except ValidationError as exc:
         raise ToolError(str(exc)) from exc
     start, end = _validated_range(start_line, end_line)
-    if settings.repo_allowed_extension_set() and not path.lower().endswith(
-        tuple(settings.repo_allowed_extension_set())
-    ):
+    allowed = settings.repo_allowed_extension_set()
+    if allowed and not path.lower().endswith(tuple(allowed)):
         raise ToolError("file extension is not allowed")
 
     authorize_action(ACTION_READ, Resource(kind=KIND_REPO_FILE, identifier=path))

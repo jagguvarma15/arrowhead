@@ -23,10 +23,17 @@ ranking as illustrative of the shape, not the quality.
    psql "$WRITE_DSN" -f deploy/pgvector_schema.sql
    ```
 
-2. Configure a real embedding provider and the read and write credentials:
+2. Configure a real embedding provider and the read and write credentials.
+   Enabling auth requires the OAuth settings too (issuer, audience, the
+   server's public URL, and a JWKS URI or public key; see docs/DEPLOY.md),
+   or the server refuses to start:
 
    ```bash
    export ARROWHEAD_AUTH_ENABLED=true
+   export ARROWHEAD_OAUTH_ISSUER=https://auth.example
+   export ARROWHEAD_OAUTH_AUDIENCE=https://mcp.example
+   export ARROWHEAD_OAUTH_JWKS_URI=https://auth.example/.well-known/jwks.json
+   export ARROWHEAD_SERVER_PUBLIC_URL=https://mcp.example
    export ARROWHEAD_SQL_DSN=postgresql+asyncpg://reader@host/db
    export ARROWHEAD_VECTOR_WRITE_DSN=postgresql+asyncpg://writer@host/db
    export ARROWHEAD_PGVECTOR_COLLECTIONS=doc_chunks
@@ -49,5 +56,7 @@ ranking as illustrative of the shape, not the quality.
    `vector_query(collection="doc_chunks", query="how long do refunds take?")`.
    Each result carries the source document and chunk index it came from.
 
-The write role should be limited to `INSERT`, `DELETE`, and `SELECT` on the
-chunks table; the read tools use the read-only `ARROWHEAD_SQL_DSN`.
+The write role should be limited to `INSERT`, `UPDATE`, `DELETE`, and
+`SELECT` on the chunks table (a re-index upserts unchanged rows, so
+`UPDATE` is required); the read tools use the read-only
+`ARROWHEAD_SQL_DSN`.

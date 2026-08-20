@@ -39,6 +39,24 @@ async def test_disabled_prompt_is_hidden_and_refused(monkeypatch):
             await client.get_prompt("summarize_document", {"path": "a.md"})
 
 
+async def test_disabled_template_blocks_expanded_reads(docs, monkeypatch):
+    (docs / "notes.md").write_text("a note")
+    monkeypatch.setenv("ARROWHEAD_DISABLED_TOOLS", "doc://{+path}")
+    get_settings.cache_clear()
+    from arrowhead.server import create_server
+
+    # Disabling the template must block the reads it expands to, not just
+    # hide the template from listings.
+    async with Client(create_server()) as client:
+        templates = {
+            t.uri_template
+            for t in (await client.list_resource_templates()).resource_templates
+        }
+        assert "doc://{+path}" not in templates
+        with pytest.raises(MCPError, match="disabled"):
+            await client.read_resource("doc://notes.md")
+
+
 def test_disabled_tools_parsing():
     from arrowhead.config import Settings
 

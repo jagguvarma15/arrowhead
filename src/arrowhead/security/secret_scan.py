@@ -91,7 +91,8 @@ def redact_text(text: str, *, max_findings: int) -> tuple[str, int]:
     """
     replaced = 0
     out_lines: list[str] = []
-    for line in text.splitlines():
+    lines = text.splitlines()
+    for line in lines:
         spans: list[tuple[int, int, str]] = []
         claimed: list[tuple[int, int]] = []
         for kind, pattern in _PATTERNS:
@@ -111,7 +112,7 @@ def redact_text(text: str, *, max_findings: int) -> tuple[str, int]:
                 break
         out_lines.append(line)
         if replaced >= max_findings:
-            out_lines.extend(text.splitlines()[len(out_lines):])
+            out_lines.extend(lines[len(out_lines):])
             break
     trailing = "\n" if text.endswith("\n") else ""
     return "\n".join(out_lines) + trailing, replaced

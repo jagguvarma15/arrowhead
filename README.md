@@ -74,21 +74,40 @@ with app.as_principal("service:etl", {"docs:read"}):
 A call with no principal is anonymous, and every scoped component is denied, so the guarded path
 is the default whichever door a call comes through.
 
+## Command line
+
+The wheel ships an `arrowhead` console script, so a host can launch the server with no checkout:
+
+```bash
+uvx arrowhead serve          # run over the configured transport
+uvx arrowhead list-tools     # print each tool and the scope it requires
+```
+
 ## What it exposes
 
-A deployment sets `ARROWHEAD_PROFILE` (`core`, `docs`, `coding`, or `full`) so a connection
-carries only the tool families it needs; a tool outside the active profile is never registered,
-so it costs no context and a call to it is unknown.
+A deployment sets `ARROWHEAD_PROFILE` so a connection carries only the tool families it needs; a
+tool outside the active profile is never registered, so it costs no context and a call to it is
+unknown. The profiles map to families exactly &mdash; note that `docs` and `coding` both include
+the `data` family, so setting a narrower profile still serves the SQL and vector connectors once
+they are configured:
+
+| Profile | Families it serves |
+|---|---|
+| `core` | `core` |
+| `docs` | `core`, `docs`, `data`, `tasks` |
+| `coding` | `core`, `data`, `repo`, `assist`, `exec`, `context` |
+| `full` (default) | every family |
 
 | Family | Tools | What it does |
 |---|---|---|
-| `core` | `safe_fetch`, `calculate`, `read_file` | The general-purpose utilities |
-| `docs` | `doc_*`, corpus resource and prompts | The jailed document corpus |
+| `core` | `safe_fetch`, `calculate`, `read_file`, the `arrowhead://integrity` resource | The general-purpose utilities and the pinnable tool-surface digest |
+| `docs` | `doc_search`, `doc_read`, `doc_retrieve`, `doc_scan`, `doc_write`, corpus resources and prompts | The jailed document corpus |
 | `data` | `sql_query`, `vector_search`, `vector_query`, `hybrid_query`, `doc_index` | SQL reads and pgvector retrieval, including hybrid vector-plus-full-text fusion and diff-aware re-indexing |
 | `repo` | `code_search`, `code_read`, `symbol_map`, `dependency_graph` | Read-only intelligence over a jailed source tree |
 | `assist` | `code_explain`, `summarize_diff`, `rerank` | Model-backed helpers over a pluggable completion provider |
 | `exec` | `run_snippet`, `run_tests` | Sandboxed execution behind a resource-bounded runner (opt in twice) |
 | `context` | `pack_context`, `workingset_get`, `workingset_update` | A token-budgeted, secret-scanned, provenance-stamped context bundle and the working sets that feed it |
+| `tasks` | `scan_corpus_async`, `task_get`, `task_update` | Handle-based asynchronous corpus scans, owner-scoped |
 
 Three capabilities go beyond what comparable coding servers offer: the guarded **context packer**
 secret-scans and provenance-stamps every snippet before it leaves the server; **hybrid, code-aware
@@ -98,10 +117,13 @@ consented to and detect a later change. Alongside tools, Arrowhead exposes resou
 templates, prompts, argument completions, and handle-based asynchronous tasks &mdash; each on the
 same guarded path.
 
-The data and coding families are opt-in extras and refuse to run until configured:
+Only the `data` family needs packaging extras (the parser and database drivers); the coding
+families run on the base install and are gated by configuration, not packages. An optional
+`treesitter` extra upgrades `symbol_map` from the line heuristic to exact parsing:
 
 ```bash
 uv sync --extra sql --extra postgres    # SQL and pgvector connectors
+uv sync --extra treesitter              # exact non-Python symbol extraction
 ```
 
 ## Built for a hostile surface
@@ -121,11 +143,46 @@ provenance so a client presents it as data rather than instructions. Scopes are 
 a scope is necessary but not sufficient &mdash; every call also passes a server-side per-resource
 check, default-deny, whose small JSON grant list can be replaced by an external engine (OPA, Cedar).
 
+## Scopes
+
+Each family's scopes are split by verb so a caller can be granted the narrowest capability it
+needs; `uvx arrowhead list-tools` prints the exact tool-to-scope mapping.
+
+| Family | Scopes |
+|---|---|
+| `core` | `tools:read` |
+| `docs` | `docs:search`, `docs:read`, `docs:scan`, `docs:write` |
+| `data` | `sql:read`, `vector:search`, `vector:write` |
+| `repo` | `repo:search`, `repo:read` |
+| `assist` | `assist:run` |
+| `exec` | `exec:run` |
+| `context` | `context:read`, `context:write` |
+| `tasks` | `docs:scan` (the scan), `tasks:read`, `tasks:write` |
+
 ## Configuration
 
 Every setting is an environment variable with the `ARROWHEAD_` prefix; see
 [`.env.example`](.env.example) for the full list with safe placeholders. Enable auth and set the
 OAuth variables before exposing the server anywhere public.
+
+## Testing
+
+```bash
+uv run pytest tests/ -v
+```
+
+The suite covers unit tests per tool and per security module, protocol conformance over the HTTP
+transport, an adversarial corpus of SSRF, injection, and traversal payloads, and Postgres and
+pgvector integration tests that run when `ARROWHEAD_POSTGRES_TEST_URL` names a live database (CI
+provides one). Lint and tests run in CI on every pull request.
+
+## Deployment
+
+`deploy/` holds a multi-stage, non-root [`Dockerfile`](deploy/Dockerfile), a local
+[`docker-compose.yml`](deploy/docker-compose.yml), and blueprints for [Render](deploy/render.yaml)
+and [Fly.io](deploy/fly.toml). The server does not terminate TLS itself; the hosting platform or a
+reverse proxy in front of the process must. [`docs/DEPLOY.md`](docs/DEPLOY.md) is the step-by-step
+runbook, including verification, rollback, and corpus backup.
 
 ## Documentation
 

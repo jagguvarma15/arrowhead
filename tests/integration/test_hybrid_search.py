@@ -8,8 +8,6 @@ is set.
 """
 
 from arrowhead.auth.principal import as_principal
-from arrowhead.authz.enforce import get_authorizer
-from arrowhead.config import get_settings
 
 _SCHEMA = [
     "CREATE EXTENSION IF NOT EXISTS vector",
@@ -25,19 +23,8 @@ _SCHEMA = [
 ]
 
 
-def _configure(monkeypatch, docs_root, url):
-    monkeypatch.setenv("ARROWHEAD_SQL_DSN", url)
-    monkeypatch.setenv("ARROWHEAD_VECTOR_WRITE_DSN", url)
-    monkeypatch.setenv("ARROWHEAD_PGVECTOR_COLLECTIONS", "doc_chunks")
-    monkeypatch.setenv("ARROWHEAD_EMBEDDING_PROVIDER", "deterministic")
-    monkeypatch.setenv("ARROWHEAD_EMBEDDING_DIMENSIONS", "8")
-    monkeypatch.setenv("ARROWHEAD_DOCS_ROOT", str(docs_root))
-    get_settings.cache_clear()
-    get_authorizer.cache_clear()
-
-
 async def test_exact_identifier_surfaces_through_the_lexical_branch(
-    postgres_url, run_ddl, tmp_path, monkeypatch
+    postgres_url, run_ddl, tmp_path, configure_vector_stack
 ):
     await run_ddl(_SCHEMA)
     (tmp_path / "errors.md").write_text(
@@ -47,7 +34,7 @@ async def test_exact_identifier_surfaces_through_the_lexical_branch(
         (tmp_path / f"noise{index}.md").write_text(
             f"Unrelated prose about deadline number {index} and nothing else."
         )
-    _configure(monkeypatch, tmp_path, postgres_url)
+    configure_vector_stack(tmp_path, postgres_url)
     from arrowhead.connectors.hybrid import hybrid_query
     from arrowhead.connectors.pgvector_index import doc_index
     from arrowhead.connectors.sql import dispose_engines
@@ -65,13 +52,13 @@ async def test_exact_identifier_surfaces_through_the_lexical_branch(
 
 
 async def test_fusion_returns_rows_for_plain_queries_too(
-    postgres_url, run_ddl, tmp_path, monkeypatch
+    postgres_url, run_ddl, tmp_path, configure_vector_stack
 ):
     await run_ddl(_SCHEMA)
     (tmp_path / "refunds.md").write_text(
         "Refunds are approved within five business days."
     )
-    _configure(monkeypatch, tmp_path, postgres_url)
+    configure_vector_stack(tmp_path, postgres_url)
     from arrowhead.connectors.hybrid import hybrid_query
     from arrowhead.connectors.pgvector_index import doc_index
     from arrowhead.connectors.sql import dispose_engines
@@ -86,11 +73,11 @@ async def test_fusion_returns_rows_for_plain_queries_too(
 
 
 async def test_hybrid_respects_tenant_isolation(
-    postgres_url, run_ddl, tmp_path, monkeypatch
+    postgres_url, run_ddl, tmp_path, configure_vector_stack
 ):
     await run_ddl(_SCHEMA)
     doc = tmp_path / "shared.md"
-    _configure(monkeypatch, tmp_path, postgres_url)
+    configure_vector_stack(tmp_path, postgres_url)
     from arrowhead.connectors.hybrid import hybrid_query
     from arrowhead.connectors.pgvector_index import doc_index
     from arrowhead.connectors.sql import dispose_engines

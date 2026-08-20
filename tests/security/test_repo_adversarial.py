@@ -17,11 +17,9 @@ from tests.security.payloads import PATH_TRAVERSAL_PAYLOADS
 
 
 @pytest.fixture
-def repo(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARROWHEAD_REPO_ROOT", str(tmp_path))
-    get_settings.cache_clear()
-    (tmp_path / "app.py").write_text("secret_token = 'not-a-real-one'\n")
-    return tmp_path
+def repo(repo):
+    (repo / "app.py").write_text("secret_token = 'not-a-real-one'\n")
+    return repo
 
 
 @pytest.mark.parametrize("payload", PATH_TRAVERSAL_PAYLOADS)

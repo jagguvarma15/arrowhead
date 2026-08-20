@@ -109,8 +109,10 @@ resource server.
 src/arrowhead/
   server.py              builds the MCPServer: verifier + cache hints + components
   app.py                 importable facade: call, read_resource, get_prompt
+  cli.py                 the arrowhead console script: serve, list-tools
   config.py              all settings, ARROWHEAD_-prefixed environment vars
   errors.py              the project ToolError every guard and tool raises
+  health.py              unauthenticated /health and /ready probe routes
   runtime/
     guards.py            per-component guard wrappers + listing filter
   auth/
@@ -128,6 +130,7 @@ src/arrowhead/
   repo/
     store.py             jailed, read-only source tree
     symbols.py           symbol extraction (ast / tree-sitter / heuristic)
+    ts_symbols.py        the optional tree-sitter backend (treesitter extra)
     dependencies.py      bounded Python import graph
   content/
     provenance.py        untrusted-data wrapping with randomized delimiters
@@ -139,6 +142,7 @@ src/arrowhead/
     catalog.py           the component contract: specs, families, profiles
     registry.py          registers in-profile components behind the guards
     integrity.py         the pinned tool-surface digest
+    search_core.py       the shared search runner behind doc_search/code_search
     <tool>.py            one module per tool
   connectors/
     sql.py               vetted read-only SQL over a pooled async engine
@@ -146,12 +150,16 @@ src/arrowhead/
     hybrid.py            vector + full-text fusion retrieval
     pgvector_index.py    diff-aware chunk-and-embed ingestion
     tasks.py             handle-based async tasks, owner-scoped
-  embeddings/            the embedding provider seam
+  embeddings/
+    base.py, factory.py  the embedding provider seam
+    deterministic.py     offline stdlib embedder for tests and demos
+    http.py              SSRF-guarded OpenAI-compatible embedding client
   llm/
     base.py, transport.py, anthropic_http.py, openai_http.py, factory.py
                          the completion provider seam, one hardened HTTP path
   exec/
     base.py              the runner seam: request and outcome
+    factory.py           picks the configured runner
     subprocess_runner.py rlimit-bounded, env-scrubbed subprocess
     container_runner.py  network-none, read-only container runner
   workingsets.py         owner-scoped working set registry
@@ -167,6 +175,8 @@ src/arrowhead/
   observability/
     audit_log.py         structured, source-redacted audit line
     tracing.py           OpenTelemetry span + W3C trace context
+    telemetry.py         OTLP exporter wiring, no-op until configured
+    metrics.py           tool-call count and duration instruments
 ```
 
 ## Deployment shape

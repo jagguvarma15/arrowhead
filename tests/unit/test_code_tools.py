@@ -11,15 +11,13 @@ from arrowhead.tools.symbol_map import symbol_map
 
 
 @pytest.fixture
-def repo(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARROWHEAD_REPO_ROOT", str(tmp_path))
-    get_settings.cache_clear()
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "app.py").write_text(
+def repo(repo):
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text(
         "import json\n\n\ndef serve():\n    return json.dumps({})\n"
     )
-    (tmp_path / "README.md").write_text("Run serve() to start.\n")
-    return tmp_path
+    (repo / "README.md").write_text("Run serve() to start.\n")
+    return repo
 
 
 async def test_code_search_finds_and_frames_matches(repo):

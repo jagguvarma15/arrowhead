@@ -14,6 +14,8 @@ from arrowhead.authz.policy import (
     KIND_DOCUMENT,
     KIND_FILE,
     KIND_PREFIX,
+    KIND_REPO_FILE,
+    KIND_REPO_PREFIX,
     KIND_TABLE,
     KIND_TABLELESS,
     KIND_URL,
@@ -21,7 +23,7 @@ from arrowhead.authz.policy import (
     Resource,
     build_authorizer,
 )
-from arrowhead.config import current_settings_override, get_settings
+from arrowhead.config import get_settings
 from arrowhead.errors import ToolError
 
 # The noun used in a denial message, chosen from the resource kind so the
@@ -34,6 +36,8 @@ _RESOURCE_NOUN = {
     KIND_TABLE: "table",
     KIND_TABLELESS: "query",
     KIND_FILE: "file",
+    KIND_REPO_FILE: "file",
+    KIND_REPO_PREFIX: "path",
 }
 
 
@@ -41,8 +45,17 @@ class AuthorizationError(ToolError):
     """The caller is not authorized for this resource."""
 
 
-@lru_cache
-def _env_authorizer() -> Authorizer:
+@lru_cache(maxsize=64)
+def _cached_authorizer(auth_enabled: bool, policy: str) -> Authorizer:
+    """One authorizer per distinct configuration value.
+
+    build_authorizer reads exactly these two settings, so the key captures
+    everything the result depends on, and authorizers are stateless, so
+    sharing one instance across callers is safe. The arguments key the
+    cache; construction stays in build_authorizer so the logic lives in
+    one place.
+    """
+    del auth_enabled, policy
     return build_authorizer(get_settings())
 
 
@@ -50,16 +63,17 @@ def get_authorizer() -> Authorizer:
     """The authorizer for the settings in effect for the current call.
 
     Under an injected settings block the authorizer is built from those
-    settings so an embedding host's policy takes effect; otherwise the
-    process-wide authorizer is built once and reused.
+    settings so an embedding host's policy takes effect. The cache is
+    keyed by value, so both the environment-driven path and the library
+    door parse a given policy once rather than on every authorized
+    action.
     """
-    if current_settings_override() is not None:
-        return build_authorizer(get_settings())
-    return _env_authorizer()
+    settings = get_settings()
+    return _cached_authorizer(settings.auth_enabled, settings.authz_policy)
 
 
-# Keep the clear-the-cache affordance the environment-driven path relies on.
-get_authorizer.cache_clear = _env_authorizer.cache_clear
+# Keep the clear-the-cache affordance the test fixtures rely on.
+get_authorizer.cache_clear = _cached_authorizer.cache_clear
 
 
 def authorize_action(action: str, resource: Resource) -> str:
