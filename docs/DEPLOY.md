@@ -111,7 +111,10 @@ rate-limited under the burst.
 
 Set `ARROWHEAD_PROFILE` to expose only the tool families the deployment serves:
 `core`, `docs`, `coding`, or `full` (the default). A smaller profile keeps the
-tool list that rides in every connected model's context lean.
+tool list that rides in every connected model's context lean. A `coding`
+deployment must also set `ARROWHEAD_REPO_ROOT` to the source tree the repo
+tools serve (read-only, mounted into the container); without it the repo jail
+points at a `repo` directory that does not exist and every repo tool fails.
 
 ## Enabling sandboxed execution
 
