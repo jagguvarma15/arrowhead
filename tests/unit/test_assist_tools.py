@@ -88,6 +88,17 @@ async def test_code_explain_honors_repo_guards(repo, scripted_provider):
         await code_explain("app.py", start_line=0)
 
 
+async def test_code_explain_refuses_disallowed_extensions(
+    repo, scripted_provider
+):
+    (repo / "blob.bin").write_text("data")
+    # The assist path enforces the same extension allowlist as code_read,
+    # and the refusal happens before the model backend is ever called.
+    with pytest.raises(ToolError, match="extension"):
+        await code_explain("blob.bin")
+    assert scripted_provider["prompts"] == []
+
+
 async def test_rerank_parses_a_clean_answer(scripted_provider):
     scripted_provider["answer"] = "2, 0, 1"
     result = await rerank("query", ["a", "b", "c"], top_k=2)
