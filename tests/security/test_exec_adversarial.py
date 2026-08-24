@@ -26,13 +26,17 @@ def exec_on(tmp_path, monkeypatch):
 
 async def test_infinite_output_is_capped(exec_on, monkeypatch):
     monkeypatch.setenv("ARROWHEAD_EXEC_MAX_OUTPUT_BYTES", "2000")
-    monkeypatch.setenv("ARROWHEAD_EXEC_WALL_SECONDS", "5")
+    monkeypatch.setenv("ARROWHEAD_EXEC_WALL_SECONDS", "30")
     get_settings.cache_clear()
     result = await run_snippet(
         "import sys\nwhile True:\n    sys.stdout.write('x' * 1000)"
     )
     assert len(result["stdout"].encode("utf-8")) <= 2000
     assert result["truncated"] is True
+    # Exceeding the cap kills the run immediately; a flooding child must
+    # not get to occupy the server for the whole wall clock.
+    assert result["timed_out"] is False
+    assert result["duration_ms"] < 5000
 
 
 async def test_sleeping_snippet_is_stopped_by_the_wall_clock(
@@ -46,7 +50,7 @@ async def test_sleeping_snippet_is_stopped_by_the_wall_clock(
 
 
 async def test_fork_bomb_is_contained(exec_on, monkeypatch):
-    monkeypatch.setenv("ARROWHEAD_EXEC_WALL_SECONDS", "5")
+    monkeypatch.setenv("ARROWHEAD_EXEC_WALL_SECONDS", "2")
     get_settings.cache_clear()
     # A process-spawning loop is bounded by the process cap and the wall
     # clock; the call returns a result rather than taking down the host.

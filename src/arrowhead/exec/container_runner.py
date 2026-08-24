@@ -2,7 +2,8 @@
 
 Wraps the same RunRequest in a docker invocation that adds the isolation
 the subprocess runner cannot: no network, a read-only root filesystem,
-and hard CPU, memory, and process caps enforced by the container runtime.
+and hard CPU-time, memory, and process caps enforced by the container
+runtime.
 The scratch directory is the only writable mount. Building the argv is
 kept separate from running it so the composition is unit-testable without
 a container runtime present.
@@ -12,7 +13,10 @@ import asyncio
 import time
 
 from arrowhead.exec.base import RunOutcome, RunRequest
-from arrowhead.exec.subprocess_runner import _decode_capped, _kill_group
+from arrowhead.exec.subprocess_runner import (
+    _communicate_capped,
+    _decode_capped,
+)
 
 
 class ContainerRunner:
@@ -37,7 +41,11 @@ class ContainerRunner:
             "--tmpfs",
             "/tmp",  # noqa: S108  # container-internal tmpfs mount, not a host path
             f"--memory={request.memory_bytes}",
-            f"--cpus={max(1, request.cpu_seconds)}",
+            # cpu_seconds is a time budget, so it maps to RLIMIT_CPU via
+            # ulimit exactly as in the subprocess runner; --cpus takes a
+            # core count and would turn seconds into parallelism.
+            "--cpus=1",
+            f"--ulimit=cpu={max(1, request.cpu_seconds)}",
             "--pids-limit=128",
             "--volume",
             f"{request.cwd}:/work",
@@ -56,16 +64,12 @@ class ContainerRunner:
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
-        timed_out = False
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(request.stdin.encode("utf-8")),
-                timeout=request.wall_seconds,
-            )
-        except TimeoutError:
-            timed_out = True
-            _kill_group(process)
-            stdout, stderr = await process.communicate()
+        stdout, stderr, timed_out = await _communicate_capped(
+            process,
+            request.stdin.encode("utf-8"),
+            request.wall_seconds,
+            request.max_output_bytes,
+        )
         duration_ms = round((time.perf_counter() - started) * 1000, 2)
         out_text, out_truncated = _decode_capped(
             stdout, request.max_output_bytes

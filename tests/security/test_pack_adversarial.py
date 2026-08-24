@@ -9,16 +9,9 @@ bundle past its token budget.
 import pytest
 
 from arrowhead.config import get_settings
+from arrowhead.errors import ToolError
 from arrowhead.tools.pack_context import pack_context
 from arrowhead.tools.workingset import workingset_update
-from arrowhead.workingsets import reset_registry
-
-
-@pytest.fixture(autouse=True)
-def fresh_registry():
-    reset_registry()
-    yield
-    reset_registry()
 
 
 @pytest.fixture
@@ -74,6 +67,25 @@ async def test_a_snippet_cannot_forge_the_closing_delimiter(
         marker = marker.removesuffix(">>")
         # The forged terminator uses zeros; the real marker is random.
         assert marker != "0000000000000000"
+
+
+async def test_pack_requires_a_search_grant(corpus, monkeypatch):
+    from arrowhead.authz.enforce import get_authorizer
+
+    monkeypatch.setenv("ARROWHEAD_AUTH_ENABLED", "true")
+    monkeypatch.setenv(
+        "ARROWHEAD_AUTHZ_POLICY",
+        '{"grants": [{"subject": "*", "actions": ["read"], "prefix": "", '
+        '"kinds": ["document", "prefix"]}]}',
+    )
+    get_settings.cache_clear()
+    get_authorizer.cache_clear()
+    # The packer authorizes at the boundary like every other range tool: a
+    # caller without a search grant is refused outright rather than being
+    # handed a silently empty bundle.
+    with pytest.raises(ToolError, match="not authorized"):
+        await pack_context("refund")
+    get_authorizer.cache_clear()
 
 
 async def test_budget_holds_against_a_huge_pinned_file(corpus, monkeypatch):

@@ -149,5 +149,6 @@ be granted in the per-resource policy, which the default policy denies. The
 coding families use `repo:read`/`repo:search` for the repository tools,
 `assist:run` for the model-backed helpers, `exec:run` plus the `execute` action
 for sandboxed execution, and `context:read`/`context:write` for the packer and
-working sets. See the README for the full scope list and `docs/SECURITY.md` for
-the authorization model.
+working sets. The "Scopes" section of the README carries the full per-family
+scope table (`uvx arrowhead list-tools` prints the exact tool-to-scope
+mapping), and `docs/SECURITY.md` describes the authorization model.

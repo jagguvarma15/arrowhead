@@ -97,6 +97,26 @@ async def test_run_tests_copies_the_subtree_and_runs_there(
     assert {p.name for p in repo.iterdir()} == {"answer.txt"}
 
 
+async def test_copy_file_cap_is_the_exec_setting(exec_on, monkeypatch):
+    repo = exec_on / "repo"
+    repo.mkdir()
+    (repo / "a.txt").write_text("a\n")
+    (repo / "b.txt").write_text("b\n")
+    monkeypatch.setenv("ARROWHEAD_REPO_ROOT", str(repo))
+    # The sandbox copy is governed by its own cap, not by the symbol-map
+    # file limit it once borrowed.
+    monkeypatch.setenv("ARROWHEAD_EXEC_COPY_MAX_FILES", "1")
+    monkeypatch.setenv("ARROWHEAD_SYMBOL_MAP_MAX_FILES", "50")
+    monkeypatch.setenv(
+        "ARROWHEAD_EXEC_TEST_COMMAND",
+        f"{sys.executable} -I -S -c "
+        "\"import os; print('copied', len(os.listdir('.')))\"",
+    )
+    get_settings.cache_clear()
+    result = await run_tests()
+    assert "copied 1" in result["stdout"]
+
+
 def test_container_runner_builds_a_locked_down_argv():
     from arrowhead.exec.container_runner import ContainerRunner
 
@@ -113,6 +133,11 @@ def test_container_runner_builds_a_locked_down_argv():
     assert "--network none" in joined
     assert "--read-only" in joined
     assert "--memory=256000000" in joined
+    # The CPU budget is seconds of CPU time, enforced as a ulimit; it must
+    # never surface as a --cpus core count.
+    assert "--ulimit=cpu=2" in joined
+    assert "--cpus=1" in joined
+    assert "--cpus=2" not in joined
     assert "--pids-limit=128" in joined
     assert argv[-3:] == ["python", "-c", "print(1)"]
 

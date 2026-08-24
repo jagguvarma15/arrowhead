@@ -19,6 +19,7 @@ search runs under the same read-only, time-bounded guarantees as a SQL read.
 
 import math
 import re
+from functools import lru_cache
 
 import anyio
 
@@ -54,14 +55,7 @@ async def vector_search(
     vector_search(collection="documents", embedding=[0.1, 0.2, ...], k=5).
     """
     settings = get_settings()
-    if not settings.sql_dsn:
-        raise ToolError("the vector connector is not configured")
-    # The read-only transaction and statement timeout this connector runs are
-    # Postgres-specific; refuse a non-Postgres DSN with a clear message rather
-    # than emitting a Postgres SET to another engine at runtime.
-    dialect = settings.sql_dialect or _dialect_from_dsn(settings.sql_dsn)
-    if dialect != "postgres":
-        raise ToolError("vector search requires a PostgreSQL database")
+    _require_postgres(settings)
     collection = _validate_collection(collection, settings)
     literal = _validate_embedding(embedding, settings)
     k = _bounded_k(k, settings)
@@ -75,8 +69,16 @@ async def vector_search(
     )
 
     try:
-        rows, columns, truncated = await _search(
-            collection, literal, k, tenant, settings
+        rows, columns, truncated = await _similarity_search(
+            collection,
+            (
+                _safe_identifier(settings.pgvector_id_column),
+                _safe_identifier(settings.pgvector_content_column),
+            ),
+            literal,
+            k,
+            tenant,
+            settings,
         )
     except SqlConnectorError as exc:
         raise ToolError(str(exc)) from exc
@@ -94,11 +96,7 @@ async def vector_query(
     vector_query(collection="doc_chunks", query="how do refunds work?", k=5).
     """
     settings = get_settings()
-    if not settings.sql_dsn:
-        raise ToolError("the vector connector is not configured")
-    dialect = settings.sql_dialect or _dialect_from_dsn(settings.sql_dsn)
-    if dialect != "postgres":
-        raise ToolError("vector search requires a PostgreSQL database")
+    _require_postgres(settings)
     if not isinstance(query, str) or not query.strip():
         raise ToolError("query must be a non-empty string")
     collection = _validate_collection(collection, settings)
@@ -112,13 +110,37 @@ async def vector_query(
     literal = await _embed_query(query, settings)
 
     try:
-        rows, columns, truncated = await _search_chunks(
-            collection, literal, k, tenant, settings
+        rows, columns, truncated = await _similarity_search(
+            collection,
+            (
+                _safe_identifier(settings.pgvector_id_column),
+                _safe_identifier(settings.pgvector_source_column),
+                _safe_identifier(settings.pgvector_chunk_index_column),
+                _safe_identifier(settings.pgvector_content_column),
+            ),
+            literal,
+            k,
+            tenant,
+            settings,
         )
     except SqlConnectorError as exc:
         raise ToolError(str(exc)) from exc
 
     return _wrap_rows(rows, columns, truncated, source=f"pgvector:{collection}")
+
+
+def _require_postgres(settings) -> None:
+    """Refuse early when the read DSN is missing or not Postgres.
+
+    The read-only transaction and statement timeout this connector runs are
+    Postgres-specific; refuse a non-Postgres DSN with a clear message rather
+    than emitting a Postgres SET to another engine at runtime.
+    """
+    if not settings.sql_dsn:
+        raise ToolError("the vector connector is not configured")
+    dialect = settings.sql_dialect or _dialect_from_dsn(settings.sql_dsn)
+    if dialect != "postgres":
+        raise ToolError("vector search requires a PostgreSQL database")
 
 
 def _validate_collection(collection: str, settings) -> str:
@@ -159,7 +181,10 @@ def _bounded_k(k, settings) -> int:
     return max(1, min(k, settings.pgvector_max_k))
 
 
+@lru_cache(maxsize=256)
 def _safe_identifier(name: str) -> str:
+    # Cached: every input is an allow-listed collection or a configured
+    # column name, so the set of values is small and constant.
     if not _IDENTIFIER.fullmatch(name):
         raise ToolError("invalid identifier")
     return name
@@ -179,19 +204,25 @@ async def _embed_query(query: str, settings) -> str:
     return _validate_embedding(vectors[0], settings)
 
 
-async def _search(collection, literal, k, tenant, settings):
+async def _similarity_search(
+    collection, select_cols, literal, k, tenant, settings
+):
+    """One bounded KNN query, collected under the shared caps.
+
+    select_cols is the identifier-guarded column list that differs between
+    the embedding-facing and chunk-facing searches; the tenant filter, the
+    ordering, the session guards, and the caps are identical.
+    """
     text = _import_sqlalchemy()
 
     # Every interpolated name is either allow-listed (the collection) or comes
     # from configuration, and each passes the strict identifier guard, so the
     # only caller-supplied inputs (the embedding, tenant, and k) are bound
     # parameters. The S608 construction warning is therefore a false positive.
-    id_col = _safe_identifier(settings.pgvector_id_column)
-    content_col = _safe_identifier(settings.pgvector_content_column)
     tenant_col = _safe_identifier(settings.pgvector_tenant_column)
     embedding_col = _safe_identifier(settings.pgvector_embedding_column)
     query = (
-        f"SELECT {id_col}, {content_col}, "  # noqa: S608
+        f"SELECT {', '.join(select_cols)}, "  # noqa: S608
         f"{embedding_col} <=> (:q)::vector AS distance "
         f"FROM {collection} "
         f"WHERE {tenant_col} = :tenant "
@@ -213,35 +244,4 @@ async def _search(collection, literal, k, tenant, settings):
                     result = await conn.stream(text(query), bind)
                     # Reuse the SQL connector's row collector so the byte,
                     # row, column, and per-cell caps stay identical here.
-                    return await _collect(result, settings)
-
-
-async def _search_chunks(collection, literal, k, tenant, settings):
-    text = _import_sqlalchemy()
-
-    id_col = _safe_identifier(settings.pgvector_id_column)
-    source_col = _safe_identifier(settings.pgvector_source_column)
-    chunk_col = _safe_identifier(settings.pgvector_chunk_index_column)
-    content_col = _safe_identifier(settings.pgvector_content_column)
-    tenant_col = _safe_identifier(settings.pgvector_tenant_column)
-    embedding_col = _safe_identifier(settings.pgvector_embedding_column)
-    query = (
-        f"SELECT {id_col}, {source_col}, {chunk_col}, "  # noqa: S608
-        f"{content_col}, {embedding_col} <=> (:q)::vector AS distance "
-        f"FROM {collection} "
-        f"WHERE {tenant_col} = :tenant "
-        f"ORDER BY {embedding_col} <=> (:q)::vector "
-        "LIMIT :k"
-    )
-    bind = {"q": literal, "tenant": tenant, "k": k}
-
-    guards = _session_guards("postgres", settings)
-    with _connector_errors():
-        engine = _get_engine(settings.sql_dsn)
-        with anyio.fail_after(settings.sql_timeout_seconds + _TIMEOUT_GRACE_SECONDS):
-            async with engine.connect() as conn:
-                async with conn.begin():
-                    for statement in guards:
-                        await conn.execute(text(statement))
-                    result = await conn.stream(text(query), bind)
                     return await _collect(result, settings)

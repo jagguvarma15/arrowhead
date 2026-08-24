@@ -24,13 +24,16 @@ services:
       # ARROWHEAD_PGVECTOR_COLLECTIONS to a table you have created before the
       # vector_search tool will run.
       ARROWHEAD_SQL_DSN: postgresql+asyncpg://arrow:arrow@postgres:5432/arrow
+      # The repo tools read a jailed source tree. Point the jail at the
+      # read-only mount below (and uncomment both) to serve your code.
+      # ARROWHEAD_REPO_ROOT: /app/repo
       # Sandboxed execution is off by default. To enable it, uncomment the
-      # flag AND grant the execute action in the authorization policy; prefer
-      # the container runner in a real deployment for network and filesystem
-      # isolation the subprocess runner does not provide.
+      # flag AND grant the execute action in the authorization policy. Use
+      # the subprocess runner here: the container runner shells out to
+      # docker, which this container does not have (it would need a Docker
+      # socket or DinD this stack deliberately does not mount).
       # ARROWHEAD_EXEC_ENABLED: "true"
-      # ARROWHEAD_EXEC_RUNNER: container
-      # ARROWHEAD_EXEC_CONTAINER_IMAGE: python:3.12-slim
+      # ARROWHEAD_EXEC_RUNNER: subprocess
       # ARROWHEAD_EXEC_TEST_COMMAND: python -m pytest -q
       # To back the assist tools with a local model, point the endpoint at it
       # and name its host:port so the SSRF guard admits the internal address.
@@ -44,6 +47,9 @@ services:
       - ../sandbox:/app/sandbox:ro
       # A named volume keeps the write corpus across restarts.
       - arrowhead-corpus:/app/documents
+      # The source tree the repo tools serve, read-only; pair with
+      # ARROWHEAD_REPO_ROOT above.
+      # - ..:/app/repo:ro
     healthcheck:
       test:
         - CMD
@@ -60,7 +66,7 @@ services:
         condition: service_healthy
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
     environment:
       POSTGRES_USER: arrow
       POSTGRES_PASSWORD: arrow

@@ -9,6 +9,30 @@ import os
 
 import pytest
 
+from arrowhead.authz.enforce import get_authorizer
+from arrowhead.config import get_settings
+
+
+@pytest.fixture
+def configure_vector_stack(monkeypatch):
+    """Point the whole vector stack at the test database in one step.
+
+    Sets both DSNs, the collection allowlist, the deterministic embedder,
+    and the docs root, then clears the settings and authorizer caches.
+    """
+
+    def configure(docs_root, url):
+        monkeypatch.setenv("ARROWHEAD_SQL_DSN", url)
+        monkeypatch.setenv("ARROWHEAD_VECTOR_WRITE_DSN", url)
+        monkeypatch.setenv("ARROWHEAD_PGVECTOR_COLLECTIONS", "doc_chunks")
+        monkeypatch.setenv("ARROWHEAD_EMBEDDING_PROVIDER", "deterministic")
+        monkeypatch.setenv("ARROWHEAD_EMBEDDING_DIMENSIONS", "8")
+        monkeypatch.setenv("ARROWHEAD_DOCS_ROOT", str(docs_root))
+        get_settings.cache_clear()
+        get_authorizer.cache_clear()
+
+    return configure
+
 
 @pytest.fixture
 def postgres_url():

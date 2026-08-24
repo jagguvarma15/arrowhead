@@ -5,8 +5,6 @@ runs only when ARROWHEAD_POSTGRES_TEST_URL is set.
 """
 
 from arrowhead.auth.principal import as_principal
-from arrowhead.authz.enforce import get_authorizer
-from arrowhead.config import get_settings
 
 _SCHEMA = [
     "CREATE EXTENSION IF NOT EXISTS vector",
@@ -21,25 +19,14 @@ _SCHEMA = [
 ]
 
 
-def _configure(monkeypatch, docs_root, url):
-    monkeypatch.setenv("ARROWHEAD_SQL_DSN", url)
-    monkeypatch.setenv("ARROWHEAD_VECTOR_WRITE_DSN", url)
-    monkeypatch.setenv("ARROWHEAD_PGVECTOR_COLLECTIONS", "doc_chunks")
-    monkeypatch.setenv("ARROWHEAD_EMBEDDING_PROVIDER", "deterministic")
-    monkeypatch.setenv("ARROWHEAD_EMBEDDING_DIMENSIONS", "8")
-    monkeypatch.setenv("ARROWHEAD_DOCS_ROOT", str(docs_root))
-    get_settings.cache_clear()
-    get_authorizer.cache_clear()
-
-
 async def test_index_then_query_returns_cited_chunks(
-    postgres_url, run_ddl, tmp_path, monkeypatch
+    postgres_url, run_ddl, tmp_path, configure_vector_stack
 ):
     await run_ddl(_SCHEMA)
     (tmp_path / "handbook.md").write_text(
         "Refunds are issued within five business days of approval."
     )
-    _configure(monkeypatch, tmp_path, postgres_url)
+    configure_vector_stack(tmp_path, postgres_url)
     from arrowhead.connectors.pgvector import vector_query
     from arrowhead.connectors.pgvector_index import doc_index
     from arrowhead.connectors.sql import dispose_engines
@@ -57,14 +44,14 @@ async def test_index_then_query_returns_cited_chunks(
 
 
 async def test_reindex_reuses_unchanged_chunks(
-    postgres_url, run_ddl, tmp_path, monkeypatch
+    postgres_url, run_ddl, tmp_path, configure_vector_stack, monkeypatch
 ):
     """A second index of an unedited corpus embeds nothing and rewrites
     nothing; an edit re-embeds only the changed document's chunks."""
     await run_ddl(_SCHEMA)
     (tmp_path / "stable.md").write_text("The refund window is five days.")
     (tmp_path / "edited.md").write_text("Shipping is free over fifty.")
-    _configure(monkeypatch, tmp_path, postgres_url)
+    configure_vector_stack(tmp_path, postgres_url)
 
     from arrowhead.connectors import pgvector_index
     from arrowhead.connectors.pgvector_index import doc_index
@@ -111,11 +98,11 @@ async def test_reindex_reuses_unchanged_chunks(
 
 
 async def test_two_tenants_are_isolated(
-    postgres_url, run_ddl, tmp_path, monkeypatch
+    postgres_url, run_ddl, tmp_path, configure_vector_stack
 ):
     await run_ddl(_SCHEMA)
     doc = tmp_path / "shared.md"
-    _configure(monkeypatch, tmp_path, postgres_url)
+    configure_vector_stack(tmp_path, postgres_url)
     from arrowhead.connectors.pgvector import vector_query
     from arrowhead.connectors.pgvector_index import doc_index
     from arrowhead.connectors.sql import dispose_engines

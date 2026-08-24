@@ -30,6 +30,14 @@ class IntegrityReport(TypedDict):
     profile: str
 
 
+# Registration and schema generation are a pure function of the profile
+# and the exec flag, so the built surface is cached per key rather than
+# rebuilding a server and regenerating every schema on each read. The
+# kill-switch filter stays per call: it is cheap and can change without
+# the surface changing.
+_SURFACE_CACHE: dict[tuple[str, bool], list] = {}
+
+
 def catalog_digest(tools) -> str:
     """The sha256 over the canonical serialization of the tool surface.
 
@@ -65,24 +73,26 @@ async def enabled_tool_surface():
     switch, so the digest is deterministic for a configuration rather
     than tied to one server object.
     """
-    from mcp.server import MCPServer
+    settings = get_settings()
+    key = (settings.profile, settings.exec_enabled)
+    tools = _SURFACE_CACHE.get(key)
+    if tools is None:
+        from mcp.server import MCPServer
 
-    from arrowhead.runtime.guards import Guards
-    from arrowhead.tools.registry import register_tools
+        from arrowhead.runtime.guards import Guards
+        from arrowhead.tools.registry import register_tools
 
-    surface = MCPServer("integrity-surface")
-    register_tools(
-        surface,
-        guards=Guards(
-            enforce_scopes=False, rate_limiter=None, disabled=frozenset()
-        ),
-    )
-    disabled = get_settings().disabled_tool_set()
-    return [
-        tool
-        for tool in await surface.list_tools()
-        if tool.name not in disabled
-    ]
+        surface = MCPServer("integrity-surface")
+        register_tools(
+            surface,
+            guards=Guards(
+                enforce_scopes=False, rate_limiter=None, disabled=frozenset()
+            ),
+        )
+        tools = await surface.list_tools()
+        _SURFACE_CACHE[key] = tools
+    disabled = settings.disabled_tool_set()
+    return [tool for tool in tools if tool.name not in disabled]
 
 
 async def integrity_report() -> IntegrityReport:

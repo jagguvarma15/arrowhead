@@ -1,10 +1,11 @@
 """Explain a repository file through the configured completion backend.
 
 The file is read through the repo jail under the same per-file
-authorization as code_read, so the assist path can never reach code the
-read path could not. The model's output is data, not analysis to trust:
-it is sanitized and returned inside the untrusted framing, because a
-model reading attacker-influenced source can be steered by it.
+authorization and extension allowlist as code_read, so the assist path
+can never reach code the read path could not. The model's output is
+data, not analysis to trust: it is sanitized and returned inside the
+untrusted framing, because a model reading attacker-influenced source
+can be steered by it.
 """
 
 import anyio
@@ -43,6 +44,9 @@ async def code_explain(
     except ValidationError as exc:
         raise ToolError(str(exc)) from exc
     start, end = _validated_range(start_line, end_line)
+    allowed = settings.repo_allowed_extension_set()
+    if allowed and not path.lower().endswith(tuple(allowed)):
+        raise ToolError("file extension is not allowed")
 
     authorize_action(ACTION_READ, Resource(kind=KIND_REPO_FILE, identifier=path))
 

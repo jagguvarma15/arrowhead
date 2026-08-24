@@ -10,6 +10,7 @@ cannot fail a whole map.
 
 import ast
 import re
+from functools import lru_cache
 from pathlib import PurePosixPath
 from typing import TypedDict
 
@@ -147,14 +148,27 @@ def _heuristic_symbols(path: str, text: str, pattern) -> list[Symbol]:
     return symbols
 
 
-def _tree_sitter_symbols(path: str, suffix: str, text: str):
-    """Symbols from the optional tree-sitter backend, or None without it."""
+@lru_cache(maxsize=1)
+def _ts_extractor():
+    """The optional tree-sitter extractor, probed once per process.
+
+    A failed import is not cached by Python itself, so without this the
+    probe would pay the full import machinery again for every file.
+    """
     try:
         from arrowhead.repo.ts_symbols import extract_with_tree_sitter
     except ImportError:
         return None
+    return extract_with_tree_sitter
+
+
+def _tree_sitter_symbols(path: str, suffix: str, text: str):
+    """Symbols from the optional tree-sitter backend, or None without it."""
+    extractor = _ts_extractor()
+    if extractor is None:
+        return None
     try:
-        return extract_with_tree_sitter(path, suffix, text)
+        return extractor(path, suffix, text)
     except Exception:
         # The optional backend must never take down extraction; the
         # heuristic still runs when it cannot parse a file.

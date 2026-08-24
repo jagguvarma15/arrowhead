@@ -48,11 +48,11 @@ sql = [
     "aiosqlite>=0.20.0",
 ]
 # The Postgres and pgvector connector. Installed on top of the sql extra
-# (arrowhead[sql,postgres]) so the async Postgres driver and the pgvector
-# types are carried only by a deployment that serves a Postgres database.
+# (arrowhead[sql,postgres]) so the async Postgres driver is carried only by
+# a deployment that serves a Postgres database. The pgvector Python package
+# is not needed: embeddings travel as bound text literals cast in SQL.
 postgres = [
     "asyncpg>=0.30.0",
-    "pgvector>=0.3.6",
 ]
 # Exact symbol extraction for non-Python languages in symbol_map. Optional:
 # without it Python uses the stdlib parser and other languages fall back to
@@ -73,15 +73,20 @@ dev = [
     "pyjwt[crypto]>=2.10.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.0.0",
     "ruff>=0.15.21",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 # Put the repo root on sys.path so the tests package (payloads, shared
 # fixtures) imports the same way under `pytest` and `python -m pytest`.
 pythonpath = ["."]
+# The suite is warning-free; keep it that way by failing on any new
+# warning instead of letting a deprecation land silently.
+filterwarnings = ["error"]
 
 [tool.ruff]
 line-length = 88

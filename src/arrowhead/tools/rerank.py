@@ -84,27 +84,32 @@ async def rerank(
         answer = await provider.complete(
             prompt, system=_SYSTEM, max_tokens=256
         )
-        answered = True
     except CompletionError as exc:
         raise ToolError(str(exc)) from exc
 
-    order = _parse_order(answer, len(candidates))
-    return {"order": order[:top_k], "model_answered": answered}
+    order, model_answered = _parse_order(answer, len(candidates))
+    return {"order": order[:top_k], "model_answered": model_answered}
 
 
-def _parse_order(answer: str, count: int) -> list[int]:
+def _parse_order(answer: str, count: int) -> tuple[list[int], bool]:
     """The model's ordering, defensively parsed and completed.
 
     Only in-range indices count, first mention wins, and any index the
     model omitted follows in original order, so the result is always a
-    valid permutation prefix regardless of what the model said.
+    valid permutation prefix regardless of what the model said. The flag
+    reports whether the answer contributed any index at all, so a caller
+    can tell a model ranking from the identity-order fallback.
     """
     order: list[int] = []
+    seen: set[int] = set()
     for token in re.findall(r"(?<![\d-])\d+", answer):
         index = int(token)
-        if 0 <= index < count and index not in order:
+        if 0 <= index < count and index not in seen:
+            seen.add(index)
             order.append(index)
+    parsed_any = bool(order)
     for index in range(count):
-        if index not in order:
+        if index not in seen:
+            seen.add(index)
             order.append(index)
-    return order
+    return order, parsed_any

@@ -10,6 +10,7 @@ traffic until the instance is ready.
 
 import os
 
+import anyio
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -24,7 +25,14 @@ def register_health_routes(mcp, rate_limiter) -> None:
 
     @mcp.custom_route("/ready", methods=["GET"], include_in_schema=False)
     async def ready(request: Request) -> JSONResponse:
-        checks = {"corpus_writable": _corpus_writable(get_settings())}
+        # The writability probe touches the filesystem, so it runs in a
+        # worker thread rather than on the event loop of an endpoint any
+        # unauthenticated prober can hit.
+        checks = {
+            "corpus_writable": await anyio.to_thread.run_sync(
+                _corpus_writable, get_settings()
+            )
+        }
         if rate_limiter is not None:
             checks["rate_limit_backend"] = await rate_limiter.backend_healthy()
         ready = all(checks.values())

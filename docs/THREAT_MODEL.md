@@ -88,11 +88,13 @@ Every tool argument is attacker-controlled input.
   infer the presence of matching or sensitive data within what the policy lets
   it access.
 
-### Data connectors (`sql_query`, `vector_search`)
+### Data connectors (`sql_query`, `vector_search`, `vector_query`, `hybrid_query`, `doc_index`)
 
-- **Surface:** arbitrary SQL and vector queries against a configured database.
-  The primary risks are write/DDL smuggling, injection through table or column
-  names, denial of service through an expensive query, and cross-tenant reads.
+- **Surface:** arbitrary SQL and vector queries against a configured database,
+  plus an ingestion path that writes rows and triggers outbound embedding
+  requests. The primary risks are write/DDL smuggling, injection through table
+  or column names, denial of service through an expensive query, cross-tenant
+  reads or writes, and the embedding egress being steered somewhere hostile.
 - **Mitigations:** a real SQL parser (with bounded nesting so it cannot be made
   to exhaust its stack) admits only a single read-only `SELECT`, rejecting
   stacked statements, writes, DDL, `SET`, row-locking clauses, and a denylist of
@@ -104,7 +106,13 @@ Every tool argument is attacker-controlled input.
   column count. For `vector_search`, the connector requires Postgres, the
   collection is allow-listed, all interpolated identifiers pass a strict guard,
   the embedding is a bound parameter of finite numbers, and the tenant filter is
-  the authenticated caller injected server-side.
+  the authenticated caller injected server-side. `vector_query` and
+  `hybrid_query` authorize before embedding, so a denied caller cannot trigger
+  an outbound request, and the embedding endpoint is configuration-addressed,
+  SSRF-guarded, egress-allowlisted, and redirect-refusing. `doc_index` requires
+  the `ingest` action the default policy denies, writes through a credential
+  separate from the read-only DSN, and binds the tenant from authorization, so
+  one tenant cannot index into another's rows.
 - **Residual risk:** the parser and function denylist are defense in depth, not a
   sandbox; a misconfigured deployment that grants a writable role or a broad
   authorization policy widens the surface, and the denylist is not exhaustive.
@@ -118,7 +126,8 @@ Every tool argument is attacker-controlled input.
 
 - **Surface:** a second path to corpus content (resources), a server-provided
   instruction channel (prompts), a discovery oracle (completions), and
-  server-minted handles for background work (tasks).
+  server-minted handles for background work (the `tasks` family:
+  `scan_corpus_async`, `task_get`, `task_update`).
 - **Mitigations:** resource reads run the same per-resource authorization and
   sanitization as `doc_read`; prompts reference resources or tools rather than
   inlining untrusted content and sanitize their arguments; completions are

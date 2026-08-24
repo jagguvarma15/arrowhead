@@ -39,22 +39,10 @@ class HTTPEmbeddingProvider:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        batch_size = max(1, self._settings.embedding_batch_size)
-        vectors: list[list[float]] = []
-        async with httpx.AsyncClient(
-            transport=self._transport,
-            timeout=self._settings.embedding_timeout_seconds,
-            follow_redirects=False,
-        ) as client:
-            for start in range(0, len(texts), batch_size):
-                batch = texts[start : start + batch_size]
-                vectors.extend(await self._embed_batch(client, batch))
-        return vectors
-
-    async def _embed_batch(
-        self, client: httpx.AsyncClient, batch: list[str]
-    ) -> list[list[float]]:
         settings = self._settings
+        # The endpoint is configuration, constant across batches, so it is
+        # validated and resolved once per call; every batch then connects
+        # to the pinned address the guard approved.
         try:
             validate_url(settings.embedding_endpoint)
             target = await resolve_pinned(
@@ -65,6 +53,22 @@ class HTTPEmbeddingProvider:
             )
         except (ValidationError, BlockedURLError) as exc:
             raise EmbeddingError(f"embedding endpoint refused: {exc}") from exc
+        batch_size = max(1, settings.embedding_batch_size)
+        vectors: list[list[float]] = []
+        async with httpx.AsyncClient(
+            transport=self._transport,
+            timeout=settings.embedding_timeout_seconds,
+            follow_redirects=False,
+        ) as client:
+            for start in range(0, len(texts), batch_size):
+                batch = texts[start : start + batch_size]
+                vectors.extend(await self._embed_batch(client, target, batch))
+        return vectors
+
+    async def _embed_batch(
+        self, client: httpx.AsyncClient, target, batch: list[str]
+    ) -> list[list[float]]:
+        settings = self._settings
         headers = {"Host": target.host_header, "Content-Type": "application/json"}
         if settings.embedding_api_key:
             headers["Authorization"] = f"Bearer {settings.embedding_api_key}"

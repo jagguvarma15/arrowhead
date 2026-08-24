@@ -1,17 +1,8 @@
 """The import graph: internal resolution, externals, bounds, and filtering."""
 
-import pytest
-
 from arrowhead.config import get_settings
 from arrowhead.repo.dependencies import build_dependency_graph, module_name
 from arrowhead.repo.store import build_repo_store
-
-
-@pytest.fixture
-def repo(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARROWHEAD_REPO_ROOT", str(tmp_path))
-    get_settings.cache_clear()
-    return tmp_path
 
 
 def test_module_name_maps_files_and_packages():

@@ -9,13 +9,6 @@ from arrowhead.tools.workingset import workingset_get, workingset_update
 from arrowhead.workingsets import reset_registry
 
 
-@pytest.fixture(autouse=True)
-def fresh_registry():
-    reset_registry()
-    yield
-    reset_registry()
-
-
 @pytest.fixture
 def docs_and_repo(tmp_path, monkeypatch):
     docs = tmp_path / "docs"
@@ -88,6 +81,26 @@ async def test_item_count_is_bounded(docs_and_repo, monkeypatch):
         await workingset_update(
             "bug", "pin", items=[{"kind": "doc", "identifier": "notes.md"}]
         )
+
+
+def test_registry_is_bounded_across_owners():
+    from arrowhead.workingsets import (
+        _MAX_OWNERS,
+        WorkingSetItem,
+        WorkingSetRegistry,
+    )
+
+    registry = WorkingSetRegistry(max_sets=2, max_items=5)
+    item = WorkingSetItem(kind="doc", identifier="notes.md")
+    # Each owner stays under its own cap, but many distinct owners must
+    # not grow the registry without limit: the least recently used sets
+    # are evicted once the global bound is reached.
+    for i in range(_MAX_OWNERS * 4):
+        registry.pin(f"owner-{i}", "a", [item])
+        registry.pin(f"owner-{i}", "b", [item])
+    assert len(registry._sets) <= 2 * _MAX_OWNERS
+    assert registry.get("owner-0", "a") is None
+    assert registry.get(f"owner-{_MAX_OWNERS * 4 - 1}", "b") is not None
 
 
 async def test_pinning_authorizes_each_item(docs_and_repo, monkeypatch):

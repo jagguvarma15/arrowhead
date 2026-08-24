@@ -61,6 +61,7 @@ def build_dependency_graph(
         if (name := module_name(info.path))
     }
     packages = {part for name in internal for part in _prefixes(name)}
+    known = internal | packages
     edges: list[DependencyEdge] = []
     seen: set[tuple[str, str]] = set()
     for info in listing.items:
@@ -72,7 +73,6 @@ def build_dependency_graph(
             module = ast.parse(text)
         except (RepoStoreError, SyntaxError, ValueError):
             continue
-        known = internal | packages
         for target in _imports(module, source, known):
             key = (source, target)
             if key in seen or not target:

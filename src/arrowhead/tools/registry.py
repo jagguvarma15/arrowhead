@@ -49,14 +49,17 @@ def active_families() -> frozenset[str]:
 def register_components(mcp: MCPServer, *, guards: Guards) -> None:
     """Register every in-profile tool, resource, and prompt, and the
     completion handler."""
-    register_tools(mcp, guards=guards)
-    register_resources(mcp, guards=guards)
-    register_prompts(mcp, guards=guards)
+    families = active_families()
+    register_tools(mcp, guards=guards, families=families)
+    register_resources(mcp, guards=guards, families=families)
+    register_prompts(mcp, guards=guards, families=families)
     register_completions(mcp, guards=guards)
 
 
-def register_tools(mcp: MCPServer, *, guards: Guards) -> None:
-    families = active_families()
+def register_tools(
+    mcp: MCPServer, *, guards: Guards, families: frozenset[str] | None = None
+) -> None:
+    families = active_families() if families is None else families
     for spec in TOOL_SPECS:
         if spec.family not in families:
             continue
@@ -68,8 +71,10 @@ def register_tools(mcp: MCPServer, *, guards: Guards) -> None:
         )
 
 
-def register_resources(mcp: MCPServer, *, guards: Guards) -> None:
-    families = active_families()
+def register_resources(
+    mcp: MCPServer, *, guards: Guards, families: frozenset[str] | None = None
+) -> None:
+    families = active_families() if families is None else families
     for spec in RESOURCE_SPECS:
         if spec.family not in families:
             continue
@@ -81,8 +86,10 @@ def register_resources(mcp: MCPServer, *, guards: Guards) -> None:
         )(guard_resource(spec, guards))
 
 
-def register_prompts(mcp: MCPServer, *, guards: Guards) -> None:
-    families = active_families()
+def register_prompts(
+    mcp: MCPServer, *, guards: Guards, families: frozenset[str] | None = None
+) -> None:
+    families = active_families() if families is None else families
     for spec in PROMPT_SPECS:
         if spec.family not in families:
             continue

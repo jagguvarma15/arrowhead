@@ -6,12 +6,6 @@ from arrowhead.errors import ToolError
 POSTGRES = "postgresql+asyncpg://u@h/db"
 
 
-def _configure(monkeypatch, **env):
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    get_settings.cache_clear()
-
-
 async def test_unconfigured_connector_refuses(monkeypatch):
     monkeypatch.delenv("ARROWHEAD_SQL_DSN", raising=False)
     get_settings.cache_clear()
@@ -21,17 +15,16 @@ async def test_unconfigured_connector_refuses(monkeypatch):
         await vector_query("doc_chunks", "hello")
 
 
-async def test_non_postgres_dsn_refuses(monkeypatch):
-    _configure(monkeypatch, ARROWHEAD_SQL_DSN="sqlite+aiosqlite:///x.db")
+async def test_non_postgres_dsn_refuses(configure_env):
+    configure_env(ARROWHEAD_SQL_DSN="sqlite+aiosqlite:///x.db")
     from arrowhead.connectors.pgvector import vector_query
 
     with pytest.raises(ToolError):
         await vector_query("doc_chunks", "hello")
 
 
-async def test_empty_query_refuses(monkeypatch):
-    _configure(
-        monkeypatch,
+async def test_empty_query_refuses(configure_env):
+    configure_env(
         ARROWHEAD_SQL_DSN=POSTGRES,
         ARROWHEAD_PGVECTOR_COLLECTIONS="doc_chunks",
     )
@@ -41,9 +34,8 @@ async def test_empty_query_refuses(monkeypatch):
         await vector_query("doc_chunks", "   ")
 
 
-async def test_unknown_collection_refuses(monkeypatch):
-    _configure(
-        monkeypatch,
+async def test_unknown_collection_refuses(configure_env):
+    configure_env(
         ARROWHEAD_SQL_DSN=POSTGRES,
         ARROWHEAD_PGVECTOR_COLLECTIONS="allowed",
     )
@@ -53,11 +45,10 @@ async def test_unknown_collection_refuses(monkeypatch):
         await vector_query("other", "hello")
 
 
-async def test_authorization_is_checked_before_embedding(monkeypatch):
+async def test_authorization_is_checked_before_embedding(configure_env):
     from arrowhead.authz.enforce import get_authorizer
 
-    _configure(
-        monkeypatch,
+    configure_env(
         ARROWHEAD_SQL_DSN=POSTGRES,
         ARROWHEAD_PGVECTOR_COLLECTIONS="doc_chunks",
         ARROWHEAD_AUTH_ENABLED="true",

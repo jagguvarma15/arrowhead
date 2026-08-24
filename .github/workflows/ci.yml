@@ -1,9 +1,16 @@
 name: CI
 
+# Actions are pinned to full commit SHAs (the tag they were resolved from
+# is noted alongside), matching the digest pinning the deploy images use:
+# a moved tag cannot silently change what runs in this pipeline.
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Weekly security sweep, so a newly disclosed CVE in a pinned
+    # dependency surfaces between pull requests too.
+    - cron: "17 6 * * 1"
 
 jobs:
   test:
@@ -12,7 +19,7 @@ jobs:
       # Postgres with pgvector, so the SQL and pgvector integration tests run
       # against a real database rather than being skipped.
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg16@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
         env:
           POSTGRES_USER: arrow
           POSTGRES_PASSWORD: arrow
@@ -25,15 +32,18 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
           enable-cache: true
 
       - name: Set up Python
         run: uv python install 3.12
+
+      - name: Check the lockfile matches the project
+        run: uv lock --check
 
       - name: Install dependencies
         run: uv sync --all-extras --dev
@@ -45,7 +55,8 @@ jobs:
       - name: Test
         env:
           ARROWHEAD_POSTGRES_TEST_URL: postgresql+asyncpg://arrow:arrow@localhost:5432/arrow
-        run: uv run pytest tests/ -v
+        # Coverage is reported for visibility, not gated.
+        run: uv run pytest tests/ -v --cov=arrowhead --cov-report=term
 
       # Confirm the wheel builds and its console script runs, so a packaging
       # regression fails CI rather than a publish.
@@ -54,16 +65,37 @@ jobs:
           uv build
           uvx --from dist/*.whl arrowhead list-tools
 
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # render.yaml and fly.toml deploy this Dockerfile, so a regression in
+      # it must fail CI rather than the next deploy.
+      - name: Build the container image
+        run: docker build -f deploy/Dockerfile -t arrowhead:ci .
+
+      - name: Scan the built image
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          scan-type: image
+          image-ref: arrowhead:ci
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          # Gate on findings a rebuild can actually fix; base-image CVEs
+          # Debian has not patched yet would otherwise block every change.
+          ignore-unfixed: true
+
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Full history so gitleaks can scan every commit, not a shallow clone.
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
           enable-cache: true
 
@@ -71,7 +103,7 @@ jobs:
         run: uv run --with pip-audit pip-audit
 
       - name: Scan filesystem for vulnerabilities and secrets
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           scan-type: fs
           scanners: vuln,secret
@@ -80,7 +112,7 @@ jobs:
           scan-ref: .
 
       - name: Scan deploy configs for misconfiguration
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           scan-type: config
           severity: CRITICAL,HIGH
@@ -88,12 +120,12 @@ jobs:
           scan-ref: deploy
 
       - name: Scan git history for secrets
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: .
           format: cyclonedx-json

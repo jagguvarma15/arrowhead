@@ -93,7 +93,7 @@ def _copy_subtree(path_prefix, subject, scratch: Path, settings) -> int:
     store = build_repo_store(settings)
     authorizer = get_authorizer()
     listing = store.list(
-        max_files=settings.symbol_map_max_files,
+        max_files=settings.exec_copy_max_files,
         path_prefix=path_prefix,
     )
     budget = settings.exec_max_copy_bytes

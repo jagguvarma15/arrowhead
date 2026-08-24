@@ -78,15 +78,17 @@ def _matching_paths(subject: str, partial: str) -> list[str]:
     settings = get_settings()
     store = build_document_store(settings)
     authorizer = get_authorizer()
+    # The store prunes by prefix while it walks, so a completion never
+    # stats the whole corpus to keep a handful of candidates.
     listing = store.list(
         extensions=settings.doc_allowed_extension_set(),
         max_files=settings.search_max_files,
+        path_prefix=partial,
     )
     matches = [
         info.path
         for info in listing.items
-        if info.path.startswith(partial)
-        and authorizer.authorize(
+        if authorizer.authorize(
             subject, ACTION_READ, Resource(kind=KIND_DOCUMENT, identifier=info.path)
         ).allowed
     ]

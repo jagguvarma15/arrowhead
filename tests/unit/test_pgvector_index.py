@@ -6,12 +6,6 @@ from arrowhead.errors import ToolError
 POSTGRES = "postgresql+asyncpg://u@h/db"
 
 
-def _configure(monkeypatch, **env):
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    get_settings.cache_clear()
-
-
 async def test_unconfigured_write_connector_refuses(monkeypatch):
     monkeypatch.delenv("ARROWHEAD_VECTOR_WRITE_DSN", raising=False)
     get_settings.cache_clear()
@@ -21,19 +15,16 @@ async def test_unconfigured_write_connector_refuses(monkeypatch):
         await doc_index("doc_chunks")
 
 
-async def test_non_postgres_write_dsn_refuses(monkeypatch):
-    _configure(
-        monkeypatch, ARROWHEAD_VECTOR_WRITE_DSN="sqlite+aiosqlite:///x.db"
-    )
+async def test_non_postgres_write_dsn_refuses(configure_env):
+    configure_env(ARROWHEAD_VECTOR_WRITE_DSN="sqlite+aiosqlite:///x.db")
     from arrowhead.connectors.pgvector_index import doc_index
 
     with pytest.raises(ToolError):
         await doc_index("doc_chunks")
 
 
-async def test_traversal_prefix_refused(monkeypatch):
-    _configure(
-        monkeypatch,
+async def test_traversal_prefix_refused(configure_env):
+    configure_env(
         ARROWHEAD_VECTOR_WRITE_DSN=POSTGRES,
         ARROWHEAD_PGVECTOR_COLLECTIONS="doc_chunks",
     )
@@ -43,9 +34,8 @@ async def test_traversal_prefix_refused(monkeypatch):
         await doc_index("doc_chunks", "../../etc")
 
 
-async def test_unknown_collection_refuses(monkeypatch):
-    _configure(
-        monkeypatch,
+async def test_unknown_collection_refuses(configure_env):
+    configure_env(
         ARROWHEAD_VECTOR_WRITE_DSN=POSTGRES,
         ARROWHEAD_PGVECTOR_COLLECTIONS="allowed",
     )
@@ -55,11 +45,10 @@ async def test_unknown_collection_refuses(monkeypatch):
         await doc_index("other")
 
 
-async def test_ingestion_denied_by_default_policy(monkeypatch):
+async def test_ingestion_denied_by_default_policy(configure_env):
     from arrowhead.authz.enforce import get_authorizer
 
-    _configure(
-        monkeypatch,
+    configure_env(
         ARROWHEAD_VECTOR_WRITE_DSN=POSTGRES,
         ARROWHEAD_PGVECTOR_COLLECTIONS="doc_chunks",
         ARROWHEAD_AUTH_ENABLED="true",
@@ -113,6 +102,37 @@ async def test_embed_attaches_vector_literals():
     assert content == "hello"
     assert literal.startswith("[") and literal.endswith("]")
     assert digest == _content_hash("hello")
+
+
+async def test_files_indexed_counts_reused_sources(
+    docs, configure_env, monkeypatch
+):
+    configure_env(
+        ARROWHEAD_VECTOR_WRITE_DSN=POSTGRES,
+        ARROWHEAD_PGVECTOR_COLLECTIONS="doc_chunks",
+    )
+    (docs / "handbook.md").write_text("Refunds take five days. " * 20)
+    import arrowhead.connectors.pgvector_index as mod
+
+    async def fake_existing(collection, tenant, sources, settings):
+        gathered, _truncated = mod._gather_chunks("", tenant, settings)
+        return {
+            (source, index): mod._content_hash(content)
+            for source, chunks in gathered.items()
+            for index, content in chunks
+        }
+
+    async def fake_write(collection, tenant, prepared, counts, settings):
+        return 0
+
+    monkeypatch.setattr(mod, "_existing_hashes", fake_existing)
+    monkeypatch.setattr(mod, "_write_chunks", fake_write)
+    result = await mod.doc_index("doc_chunks")
+    # A re-index of a fully unchanged corpus still indexed every gathered
+    # file; the chunk counts carry the reuse detail.
+    assert result["files_indexed"] == 1
+    assert result["chunks_reused"] > 0
+    assert result["chunks_written"] == 0
 
 
 class TestPartitionChunks:
