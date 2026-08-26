@@ -9,6 +9,7 @@ secret-scanned and redacted before it leaves, inside the untrusted
 framing.
 """
 
+import secrets
 import shlex
 from pathlib import Path
 
@@ -59,8 +60,11 @@ async def run_tests(path_prefix: str = "") -> RunResult:
     if not argv:
         raise ToolError("the configured test command is empty")
 
+    # A per-call scratch name keeps concurrent runs from wiping and reusing
+    # one another's directory, which would otherwise let one caller's tests
+    # run over another caller's copied subtree.
     scratch = await anyio.to_thread.run_sync(
-        make_scratch, settings.exec_workdir, "tests"
+        make_scratch, settings.exec_workdir, f"tests-{secrets.token_hex(8)}"
     )
     try:
         copied = await anyio.to_thread.run_sync(
