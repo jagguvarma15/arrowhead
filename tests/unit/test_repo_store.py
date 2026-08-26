@@ -57,6 +57,27 @@ def test_excluded_directories_are_pruned(repo):
         store().read_text(".git/config")
 
 
+def test_case_variant_excluded_dir_is_refused(repo):
+    # On a case-insensitive filesystem ".GIT" reaches ".git"; exclusion must
+    # hold regardless of the case the caller supplies.
+    (repo / ".git").mkdir()
+    (repo / ".git" / "config").write_text("[core]\n")
+    with pytest.raises(RepoFileNotFoundError):
+        store().read_text(".GIT/config")
+
+
+def test_symlink_into_excluded_dir_is_unreachable(repo):
+    # A link whose own name passes the extension and exclusion filters but
+    # whose target sits in .git must not surface its target.
+    (repo / ".git").mkdir()
+    (repo / ".git" / "config").write_text("[remote]\nurl = secret\n")
+    (repo / "notes.py").symlink_to(repo / ".git" / "config")
+    with pytest.raises(RepoFileNotFoundError):
+        store().read_text("notes.py")
+    listed = {info.path for info in store().list().items}
+    assert "notes.py" not in listed
+
+
 def test_binary_files_are_refused(repo):
     (repo / "blob.py").write_bytes(b"\x00\x01\x02compiled")
     with pytest.raises(BinaryFileError):
