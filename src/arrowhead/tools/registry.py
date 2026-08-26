@@ -104,9 +104,19 @@ def register_completions(mcp: MCPServer, *, guards: Guards) -> None:
     """Attach the guarded argument-completion handler.
 
     The completion path degrades gracefully rather than raising, so the
-    handler carries its own kill-switch, rate-limit, and audit wiring
-    instead of the component guard chain.
+    handler carries its own kill-switch, rate-limit, scope, and audit
+    wiring instead of the component guard chain. It completes corpus
+    document paths, so it requires the same scope as searching the corpus;
+    an under-scoped caller gets an empty completion, not an enumeration.
     """
+    from arrowhead.auth.scopes import TOOL_SCOPES
     from arrowhead.completions.handlers import guarded_completion
 
-    mcp.completion()(guarded_completion(guards.rate_limiter, guards.disabled))
+    mcp.completion()(
+        guarded_completion(
+            guards.rate_limiter,
+            guards.disabled,
+            enforce_scopes=guards.enforce_scopes,
+            scope=TOOL_SCOPES["doc_search"],
+        )
+    )
