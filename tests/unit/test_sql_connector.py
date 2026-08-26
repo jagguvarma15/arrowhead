@@ -179,6 +179,15 @@ def test_record_keys_disambiguate_collisions():
     assert _record_keys(["a", "b", "a", "a"]) == ["a", "b", "a#2", "a#3"]
 
 
+def test_record_keys_avoid_a_second_order_collision():
+    from arrowhead.connectors.sql import _record_keys
+
+    # A suffixed key can itself collide with a later column's suffix; the keys
+    # must stay unique so no column's values overwrite another's in the record.
+    keys = _record_keys(["x#2", "x", "x"])
+    assert len(set(keys)) == len(keys)
+
+
 async def test_the_dialect_is_derived_from_the_dsn():
     # A DSN-derived dialect keeps the guard from regenerating a query through a
     # generic dialect that would silently drop a dialect-specific clause.
