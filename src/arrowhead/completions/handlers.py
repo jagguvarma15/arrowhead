@@ -12,6 +12,7 @@ import anyio
 from mcp.types import Completion
 
 from arrowhead.auth.identity import caller_identity
+from arrowhead.auth.scopes import has_scope
 from arrowhead.authz.enforce import get_authorizer
 from arrowhead.authz.policy import ACTION_READ, KIND_DOCUMENT, Resource
 from arrowhead.config import get_settings
@@ -24,12 +25,14 @@ _PATH_ARGUMENTS = frozenset({"path", "path_prefix"})
 _MAX_COMPLETIONS = 50
 
 
-def guarded_completion(rate_limiter, disabled):
-    """Wrap the completion handler with the kill switch, rate limit, and audit
-    line a tool call gets, because the low-level completion path bypasses the
-    middleware chain. A disabled or rate-limited completion returns no values
-    (never runs the corpus walk) rather than raising, so an as-you-type client
-    degrades gracefully instead of erroring.
+def guarded_completion(rate_limiter, disabled, *, enforce_scopes=False, scope=""):
+    """Wrap the completion handler with the kill switch, rate limit, scope
+    check, and audit line a tool call gets, because the low-level completion
+    path bypasses the middleware chain. A disabled, rate-limited, or
+    under-scoped completion returns no values (never runs the corpus walk)
+    rather than raising, so an as-you-type client degrades gracefully instead
+    of erroring, and a caller lacking the corpus scope sees nothing rather than
+    enumerating document paths it could not otherwise list.
     """
 
     async def guarded(ref, argument, context=None) -> Completion | None:
@@ -37,6 +40,9 @@ def guarded_completion(rate_limiter, disabled):
         status = "ok"
         try:
             if "completion" in disabled:
+                status = "refused"
+                return Completion(values=[], total=0, hasMore=False)
+            if enforce_scopes and scope and not has_scope(scope):
                 status = "refused"
                 return Completion(values=[], total=0, hasMore=False)
             if rate_limiter is not None and not await rate_limiter.allow(
