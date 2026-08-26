@@ -148,8 +148,11 @@ def transport_security(settings):
     origins = settings.allowed_origins_list()
     if not hosts and not origins:
         return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    # The list accessors return None when a setting is empty, but the SDK's
+    # fields are non-optional lists; pass [] so configuring only one of the
+    # two allowlists does not raise a validation error at startup.
     return TransportSecuritySettings(
-        allowed_hosts=hosts, allowed_origins=origins
+        allowed_hosts=hosts or [], allowed_origins=origins or []
     )
 
 

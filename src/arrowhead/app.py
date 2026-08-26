@@ -128,15 +128,25 @@ class Arrowhead:
     async def complete(self, argument_name: str, value: str = "") -> list[str]:
         """Return authorized completion values for an argument.
 
-        Completions are filtered by the caller's authorization, so this never
-        returns a resource the caller could not read.
+        The import door runs the same kill-switch, scope, and audit path the
+        wire door applies, and completions are filtered by the caller's
+        authorization, so this never returns a resource the caller could not
+        read and a disabled or under-scoped completion returns nothing.
         """
         from mcp.types import CompletionArgument
 
-        from arrowhead.completions.handlers import complete_argument
+        from arrowhead.auth.scopes import TOOL_SCOPES
+        from arrowhead.completions.handlers import guarded_completion
 
         with self._activate():
-            result = await complete_argument(
+            settings = get_settings()
+            handler = guarded_completion(
+                None,
+                frozenset(settings.disabled_tool_set()),
+                enforce_scopes=settings.auth_enabled,
+                scope=TOOL_SCOPES["doc_search"],
+            )
+            result = await handler(
                 None, CompletionArgument(name=argument_name, value=value), None
             )
         return list(result.values) if result is not None else []
@@ -145,7 +155,10 @@ class Arrowhead:
         """Return the ASGI application for serving the server over HTTP.
 
         Transport security defaults from the active settings, exactly as
-        the standalone server applies it.
+        the standalone server applies it. This returns the ASGI app but does
+        not bind a socket; the refusal to serve HTTP with authentication
+        disabled lives at the serving boundary (server.main and the CLI),
+        so an in-process ASGI use such as a health probe still works.
         """
         from arrowhead.server import transport_security
 

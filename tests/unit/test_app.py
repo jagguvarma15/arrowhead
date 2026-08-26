@@ -53,3 +53,18 @@ async def test_as_principal_adopts_the_caller():
     with app.as_principal("service:etl", {"docs:read"}):
         assert caller_identity() == "service:etl"
     assert caller_identity() == "anonymous"
+
+
+async def test_complete_honors_the_kill_switch(docs, monkeypatch):
+    # The import door must run the same kill switch the wire door does; a
+    # disabled completion returns nothing instead of walking the corpus.
+    from arrowhead.config import get_settings
+
+    (docs / "notes").mkdir()
+    (docs / "notes" / "a.md").write_text("x")
+    app = Arrowhead()
+    assert await app.complete("path", "notes/") == ["notes/a.md"]
+    monkeypatch.setenv("ARROWHEAD_DISABLED_TOOLS", "completion")
+    get_settings.cache_clear()
+    assert await app.complete("path", "notes/") == []
+    get_settings.cache_clear()

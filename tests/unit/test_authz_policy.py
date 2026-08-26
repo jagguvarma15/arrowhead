@@ -97,6 +97,26 @@ def test_point_prefix_matches_on_a_component_boundary():
     assert not policy.authorize("a", ACTION_READ, doc("notes-private/x")).allowed
 
 
+def test_document_prefix_does_not_cross_a_dot_into_a_sibling_namespace():
+    # "." is an ordinary character in a path; a document grant on "public" must
+    # not reach a sibling directory "public.secrets/".
+    policy = JailPolicy([Grant("*", frozenset({ACTION_READ}), "public")])
+    assert policy.authorize("a", ACTION_READ, doc("public/x.md")).allowed
+    assert not policy.authorize(
+        "a", ACTION_READ, doc("public.secrets/salaries.md")
+    ).allowed
+
+
+def test_table_prefix_still_matches_on_the_schema_dot():
+    # For a table name, "." is the schema separator and must remain a boundary.
+    policy = parse_policy(
+        '{"grants": [{"subject": "*", "actions": ["ingest"], '
+        '"kinds": ["table"], "prefix": "public"}]}'
+    )
+    assert policy.authorize("a", ACTION_INGEST, table("public.users")).allowed
+    assert not policy.authorize("a", ACTION_INGEST, table("publicfoo")).allowed
+
+
 def test_subject_with_traversal_is_refused_in_namespace_expansion():
     policy = JailPolicy([Grant("*", frozenset({ACTION_WRITE}), "${subject}/")])
     assert not policy.authorize("../evil", ACTION_WRITE, doc("../evil/x")).allowed

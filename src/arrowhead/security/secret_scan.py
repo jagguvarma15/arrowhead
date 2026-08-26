@@ -85,14 +85,19 @@ def redact_text(text: str, *, max_findings: int) -> tuple[str, int]:
 
     Runs the same pattern set as scan_text and substitutes each matched
     value with its redaction tag in place, so output that must leave the
-    server (a subprocess's stdout) carries no raw secret. Returns the
-    redacted text and how many values were replaced. Substitution is
-    right-to-left within a line so earlier spans keep their offsets.
+    server (a subprocess's stdout) carries no raw secret. Redaction is
+    exhaustive: unlike scan_text's max_findings, which caps how many
+    findings are *reported*, a cap here would emit the remainder in the
+    clear, and a single raw secret slipping through defeats the control.
+    max_findings is accepted for call parity but does not bound redaction;
+    the upstream output byte cap bounds the work. Returns the redacted text
+    and how many values were replaced. Substitution is right-to-left within
+    a line so earlier spans keep their offsets.
     """
+    del max_findings  # redaction is exhaustive; see the docstring.
     replaced = 0
     out_lines: list[str] = []
-    lines = text.splitlines()
-    for line in lines:
+    for line in text.splitlines():
         spans: list[tuple[int, int, str]] = []
         claimed: list[tuple[int, int]] = []
         for kind, pattern in _PATTERNS:
@@ -108,11 +113,6 @@ def redact_text(text: str, *, max_findings: int) -> tuple[str, int]:
         for start, end, placeholder in sorted(spans, reverse=True):
             line = line[:start] + placeholder + line[end:]
             replaced += 1
-            if replaced >= max_findings:
-                break
         out_lines.append(line)
-        if replaced >= max_findings:
-            out_lines.extend(lines[len(out_lines):])
-            break
     trailing = "\n" if text.endswith("\n") else ""
     return "\n".join(out_lines) + trailing, replaced

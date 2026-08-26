@@ -31,6 +31,26 @@ def test_a_set_operation_is_allowed():
     assert guarded.tables == frozenset({"t1", "t2"})
 
 
+def test_inner_cte_does_not_shadow_an_outer_table():
+    # A decoy CTE declared inside a subquery must not erase an outer read of a
+    # real table of the same name from the set the authorizer scopes on.
+    guarded = guard_read_query(
+        "SELECT s.* FROM secrets s, reports r WHERE r.id IN "
+        "(WITH secrets AS (SELECT 1 AS x) SELECT x FROM secrets)"
+    )
+    assert "secrets" in guarded.tables
+    assert "reports" in guarded.tables
+
+
+def test_inner_cte_join_does_not_hide_the_outer_table():
+    guarded = guard_read_query(
+        "SELECT * FROM secrets JOIN "
+        "(WITH secrets AS (SELECT 1 AS id) SELECT id FROM secrets) q "
+        "ON q.id = secrets.id"
+    )
+    assert guarded.tables == frozenset({"secrets"})
+
+
 @pytest.mark.parametrize(
     "query",
     [

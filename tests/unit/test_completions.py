@@ -34,6 +34,34 @@ async def test_guarded_completion_kill_switch_returns_empty():
     assert result.values == []
 
 
+async def test_guarded_completion_without_scope_returns_empty(docs):
+    (docs / "notes").mkdir()
+    (docs / "notes" / "a.md").write_text("x")
+    # Scope enforcement on and no token carrying docs:search: the corpus walk
+    # must not run, so an under-scoped caller cannot enumerate document paths.
+    handler = guarded_completion(
+        _Limiter(allowed=True),
+        frozenset(),
+        enforce_scopes=True,
+        scope="docs:search",
+    )
+    result = await handler(None, _arg("path", "notes/"), None)
+    assert result.values == []
+
+
+async def test_guarded_completion_completes_when_scope_not_enforced(docs):
+    (docs / "notes").mkdir()
+    (docs / "notes" / "a.md").write_text("x")
+    handler = guarded_completion(
+        _Limiter(allowed=True),
+        frozenset(),
+        enforce_scopes=False,
+        scope="docs:search",
+    )
+    result = await handler(None, _arg("path", "notes/"), None)
+    assert result.values == ["notes/a.md"]
+
+
 async def test_completes_matching_authorized_paths(docs):
     (docs / "notes").mkdir()
     (docs / "notes" / "a.md").write_text("x")

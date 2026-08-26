@@ -157,9 +157,6 @@ def _gather_chunks(path_prefix, tenant, settings):
             tenant, ACTION_READ, Resource(kind=KIND_DOCUMENT, identifier=info.path)
         ).allowed:
             continue
-        if total_chunks >= settings.vector_index_max_chunks:
-            truncated = True
-            break
         try:
             data = store.read_bytes(info.path)
             content, _format = render_document(info.path, data, settings)
@@ -173,6 +170,12 @@ def _gather_chunks(path_prefix, tenant, settings):
             continue
         gathered[info.path] = list(enumerate(chunks))
         total_chunks += len(chunks)
+        if total_chunks >= settings.vector_index_max_chunks:
+            # The corpus chunk budget is exhausted: this document may have been
+            # cut short at the cap and any later documents go unindexed, so the
+            # result is incomplete even when the cap falls on the last file.
+            truncated = True
+            break
     return gathered, truncated
 
 

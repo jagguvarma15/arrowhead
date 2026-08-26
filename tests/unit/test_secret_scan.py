@@ -1,4 +1,4 @@
-from arrowhead.security.secret_scan import scan_text
+from arrowhead.security.secret_scan import redact_text, scan_text
 
 
 def test_detects_aws_access_key():
@@ -59,6 +59,25 @@ def test_redaction_tag_is_salted_not_a_plain_hash():
     plain = hashlib.sha256(b"123-45-6789").hexdigest()[:8]
     assert plain not in finding.redacted
     assert finding.type == "us_ssn"
+
+
+def test_redact_replaces_every_match_past_the_cap():
+    # Decoy matches must not burn a budget that then lets a real secret out:
+    # redaction is exhaustive, unlike scan_text's reporting cap.
+    decoys = "\n".join("password = decoyvalue1234" for _ in range(200))
+    text = decoys + "\naws AKIAIOSFODNN7EXAMPLE key"
+    out, replaced = redact_text(text, max_findings=200)
+    assert "AKIAIOSFODNN7EXAMPLE" not in out
+    assert "decoyvalue1234" not in out
+    assert replaced >= 201
+
+
+def test_redact_covers_leftmost_secret_on_a_dense_line():
+    # The right-to-left substitution once left the earliest matches on a
+    # cap-hitting line raw; every match on the line must be redacted.
+    line = " ".join("AKIAIOSFODNN7EXAMPLE" for _ in range(5))
+    out, _ = redact_text(line, max_findings=1)
+    assert "AKIAIOSFODNN7EXAMPLE" not in out
 
 
 def test_overlapping_patterns_yield_one_finding():

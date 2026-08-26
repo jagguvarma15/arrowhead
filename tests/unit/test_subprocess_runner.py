@@ -98,6 +98,23 @@ async def test_wall_timeout_kills_a_sleeper(scratch):
     assert time.perf_counter() - started < 10
 
 
+async def test_wall_timeout_preserves_prior_output(scratch):
+    # Output written before the deadline is exactly the diagnostic a timed-out
+    # run needs; it must survive the cancellation of the reads.
+    code = (
+        "import sys, time\n"
+        "print('BEFORE-TIMEOUT', flush=True)\n"
+        "sys.stderr.write('ERR-BEFORE\\n'); sys.stderr.flush()\n"
+        "time.sleep(30)\n"
+    )
+    outcome = await SubprocessRunner().run(
+        python_request(scratch, code, wall_seconds=1.0)
+    )
+    assert outcome.timed_out is True
+    assert "BEFORE-TIMEOUT" in outcome.stdout
+    assert "ERR-BEFORE" in outcome.stderr
+
+
 @pytest.mark.skipif(
     sys.platform == "darwin", reason="RLIMIT_CPU delivery is unreliable on macOS"
 )

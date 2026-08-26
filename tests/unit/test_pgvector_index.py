@@ -84,6 +84,23 @@ async def test_gather_chunks_reads_the_corpus(docs):
     assert all(content.strip() for _index, content in gathered["handbook.md"])
 
 
+async def test_gather_chunks_flags_a_truncated_last_document(docs, configure_env):
+    # When the chunk budget is exhausted by the last document in the walk, the
+    # result must still report truncation, or the caller cannot tell the tail
+    # was dropped.
+    configure_env(
+        ARROWHEAD_VECTOR_INDEX_MAX_CHUNKS="2",
+        ARROWHEAD_VECTOR_INDEX_CHUNK_MAX_CHARS="40",
+        ARROWHEAD_VECTOR_INDEX_CHUNK_OVERLAP="0",
+    )
+    (docs / "a.md").write_text("alpha")
+    (docs / "z-big.md").write_text("word " * 200)
+    from arrowhead.connectors.pgvector_index import _gather_chunks
+
+    _gathered, truncated = _gather_chunks("", "tester", get_settings())
+    assert truncated is True
+
+
 async def test_embed_attaches_vector_literals():
     get_settings.cache_clear()
     from arrowhead.connectors.pgvector_index import _content_hash, _embed

@@ -15,6 +15,7 @@ amplifier. Every failure path returns None, which the SDK surfaces as an
 ordinary 401 challenge; no verification detail leaks to the caller.
 """
 
+import asyncio
 import time
 
 import httpx
@@ -52,6 +53,9 @@ class JWKSTokenVerifier:
         self._keys: dict[str, object] = {}
         self._fetched_at: float | None = None
         self._rotation_used = False
+        # Serializes refreshes so concurrent requests at cold start or window
+        # expiry issue one fetch, not one each.
+        self._refresh_lock = asyncio.Lock()
 
     async def verify_token(self, token: str) -> AccessToken | None:
         try:
@@ -84,21 +88,27 @@ class JWKSTokenVerifier:
         kid = jwt.get_unverified_header(token).get("kid")
         if kid is None:
             return None
-        now = self._clock()
-        expired = (
-            self._fetched_at is None or now - self._fetched_at > self._cache_ttl
-        )
-        if expired:
-            await self._refresh()
-            self._fetched_at = now
-            self._rotation_used = False
-        if kid not in self._keys and not self._rotation_used:
-            # One extra fetch per cache window picks up a genuine key
-            # rotation immediately; a fabricated key id spends the window's
-            # single retry and every later one fails from cache.
-            self._rotation_used = True
-            await self._refresh()
-        return self._keys.get(kid)
+        async with self._refresh_lock:
+            now = self._clock()
+            expired = (
+                self._fetched_at is None
+                or now - self._fetched_at > self._cache_ttl
+            )
+            if expired:
+                # Advance the window before fetching, so a refresh that raises
+                # (an issuer outage) still bounds retries to one per window
+                # rather than re-fetching on every request and amplifying the
+                # outage back at the issuer.
+                self._fetched_at = now
+                self._rotation_used = False
+                await self._refresh()
+            if kid not in self._keys and not self._rotation_used:
+                # One extra fetch per cache window picks up a genuine key
+                # rotation immediately; a fabricated key id spends the window's
+                # single retry and every later one fails from cache.
+                self._rotation_used = True
+                await self._refresh()
+            return self._keys.get(kid)
 
     async def _refresh(self) -> None:
         client = self._http_client

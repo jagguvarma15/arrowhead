@@ -10,6 +10,7 @@ a value the snippet prints does not exfiltrate a real secret, and it is
 returned inside the untrusted framing.
 """
 
+import secrets
 import sys
 from typing import TypedDict
 
@@ -63,8 +64,11 @@ async def run_snippet(code: str, stdin: str = "") -> RunResult:
         ACTION_EXECUTE, Resource(kind=KIND_TABLELESS, identifier="run_snippet")
     )
 
+    # A per-call scratch name keeps concurrent runs from wiping and reusing
+    # one another's directory, which would otherwise let one caller's process
+    # execute over another caller's files.
     scratch = await anyio.to_thread.run_sync(
-        make_scratch, settings.exec_workdir, "snippet"
+        make_scratch, settings.exec_workdir, f"snippet-{secrets.token_hex(8)}"
     )
     try:
         request = RunRequest(

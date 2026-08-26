@@ -117,6 +117,52 @@ async def test_copy_file_cap_is_the_exec_setting(exec_on, monkeypatch):
     assert "copied 1" in result["stdout"]
 
 
+async def test_snippet_scratch_is_unique_per_call(exec_on, monkeypatch):
+    # A fixed scratch name lets a concurrent run wipe and reuse the directory
+    # between the copy and the run; each call must get its own.
+    import arrowhead.tools.run_snippet as mod
+
+    real = mod.make_scratch
+    names: list[str] = []
+
+    def spy(root, name):
+        names.append(name)
+        return real(root, name)
+
+    monkeypatch.setattr(mod, "make_scratch", spy)
+    await run_snippet("print(1)")
+    await run_snippet("print(2)")
+    assert names[0] != names[1]
+    assert all(n.startswith("snippet-") for n in names)
+
+
+async def test_run_tests_scratch_is_unique_per_call(exec_on, monkeypatch):
+    import arrowhead.tools.run_tests as mod
+
+    repo = exec_on / "repo"
+    repo.mkdir()
+    (repo / "answer.txt").write_text("42\n")
+    monkeypatch.setenv("ARROWHEAD_REPO_ROOT", str(repo))
+    monkeypatch.setenv(
+        "ARROWHEAD_EXEC_TEST_COMMAND",
+        f"{sys.executable} -I -S -c \"print('ok')\"",
+    )
+    get_settings.cache_clear()
+
+    real = mod.make_scratch
+    names: list[str] = []
+
+    def spy(root, name):
+        names.append(name)
+        return real(root, name)
+
+    monkeypatch.setattr(mod, "make_scratch", spy)
+    await run_tests()
+    await run_tests()
+    assert names[0] != names[1]
+    assert all(n.startswith("tests-") for n in names)
+
+
 def test_container_runner_builds_a_locked_down_argv():
     from arrowhead.exec.container_runner import ContainerRunner
 

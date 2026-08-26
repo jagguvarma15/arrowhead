@@ -85,13 +85,15 @@ class Decision:
     reason: str
 
 
-def _covered_by_prefix(prefix: str, identifier: str) -> bool:
+def _covered_by_prefix(prefix: str, identifier: str, separators: str) -> bool:
     """True when a point resource sits under a granted prefix.
 
     Matching is component-aware: the identifier must equal the prefix or
-    continue past it at a path or schema separator, so a grant on "notes" does
-    not reach "notes-private" and a grant on "orders" does not reach
-    "orders_pii". An empty prefix covers everything.
+    continue past it at a component separator, so a grant on "notes" does not
+    reach "notes-private" and a grant on "orders" does not reach "orders_pii".
+    The separators depend on the resource kind: "/" for a path (document,
+    file, or repo file), where "." is an ordinary filename character, and "."
+    for a table name (schema.table). An empty prefix covers everything.
     """
     if prefix == "":
         return True
@@ -99,9 +101,9 @@ def _covered_by_prefix(prefix: str, identifier: str) -> bool:
         return True
     if not identifier.startswith(prefix):
         return False
-    if prefix.endswith(("/", ".")):
+    if prefix[-1] in separators:
         return True
-    return identifier[len(prefix)] in "/."
+    return identifier[len(prefix)] in separators
 
 
 @dataclass(frozen=True)
@@ -138,8 +140,11 @@ class Grant:
                 expanded
             ) or expanded.startswith(resource.identifier)
         # A point resource (one document, file, or table) must sit under a
-        # granted prefix, matched on component boundaries.
-        return _covered_by_prefix(expanded, resource.identifier)
+        # granted prefix, matched on component boundaries. "." separates a
+        # table name (schema.table) but is an ordinary character in a path, so
+        # a document grant on "public" must not reach "public.secrets/...".
+        separators = "." if resource.kind == KIND_TABLE else "/"
+        return _covered_by_prefix(expanded, resource.identifier, separators)
 
 
 class Authorizer(Protocol):

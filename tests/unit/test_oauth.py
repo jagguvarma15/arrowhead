@@ -15,6 +15,57 @@ CALL = {
 HEADERS = {"Accept": "application/json, text/event-stream"}
 
 
+def _kid_token(kid="key-1"):
+    import jwt
+
+    # A 32-byte key keeps jwt from emitting the short-key warning the suite
+    # promotes to an error; the signature is never verified here anyway.
+    return jwt.encode(
+        {"sub": "u"}, "k" * 32, algorithm="HS256", headers={"kid": kid}
+    )
+
+
+def _outage_verifier():
+    import httpx
+
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(503)
+
+    verifier = JWKSTokenVerifier(
+        issuer=ISSUER,
+        audience="https://arrowhead.test",
+        jwks_uri="https://idp.test/jwks",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        cache_ttl_seconds=300.0,
+    )
+    return verifier, calls
+
+
+async def test_failed_jwks_refresh_is_bounded_per_window():
+    # An issuer outage must not turn a stream of tokens into a stream of JWKS
+    # fetches: the window advances even when the refresh fails.
+    verifier, calls = _outage_verifier()
+    token = _kid_token()
+    for _ in range(5):
+        assert await verifier.verify_token(token) is None
+    assert calls["n"] <= 2
+
+
+async def test_concurrent_jwks_refresh_is_single_flight():
+    import asyncio
+
+    verifier, calls = _outage_verifier()
+    token = _kid_token()
+    results = await asyncio.gather(
+        *[verifier.verify_token(token) for _ in range(8)]
+    )
+    assert all(result is None for result in results)
+    assert calls["n"] <= 2
+
+
 async def test_request_without_token_is_401(auth_client):
     async with auth_client() as client:
         response = await client.post("/mcp", json=CALL, headers=HEADERS)
