@@ -17,6 +17,7 @@ macOS, so memory bounding is best effort there and dependable on Linux.
 """
 
 import asyncio
+import contextlib
 import os
 import resource
 import shutil
@@ -25,6 +26,12 @@ import time
 from pathlib import Path
 
 from arrowhead.exec.base import RunOutcome, RunRequest
+
+# After a wall-clock kill, how long to wait for the pipes to drain and the
+# child to reap before giving up. A grandchild that detached from the process
+# group can hold an inherited pipe open, so these waits are bounded rather than
+# unconditional, keeping the wall-clock guarantee.
+_DRAIN_SECONDS = 5.0
 
 # The only environment a bounded process inherits: enough to find a Python
 # interpreter and a home, nothing that could carry configuration or a secret.
@@ -123,7 +130,13 @@ async def _communicate_capped(
     kept; the moment either stream exceeds the cap the whole process
     group is killed. A cap kill leaves timed_out False and surfaces the
     signal as a negative exit code; only the wall clock sets timed_out.
+
+    The buffers live outside read_capped, so when a wall-clock timeout
+    cancels the reads the output collected before it survives instead of
+    being discarded with the cancelled coroutine's frame.
     """
+    out_buf = bytearray()
+    err_buf = bytearray()
 
     async def feed() -> None:
         try:
@@ -134,38 +147,38 @@ async def _communicate_capped(
         finally:
             process.stdin.close()
 
-    async def read_capped(stream) -> bytes:
-        chunks: list[bytes] = []
-        collected = 0
+    async def read_capped(stream, buf: bytearray) -> None:
         while True:
             chunk = await stream.read(65536)
             if not chunk:
-                return b"".join(chunks)
-            if collected <= cap:
-                keep = chunk[: cap + 1 - collected]
-                chunks.append(keep)
-                collected += len(keep)
-            if collected > cap:
+                return
+            if len(buf) <= cap:
+                buf.extend(chunk[: cap + 1 - len(buf)])
+            if len(buf) > cap:
                 _kill_group(process)
+
+    async def read_both() -> None:
+        await asyncio.gather(
+            read_capped(process.stdout, out_buf),
+            read_capped(process.stderr, err_buf),
+        )
 
     feeder = asyncio.ensure_future(feed())
     timed_out = False
     try:
-        stdout, stderr = await asyncio.wait_for(
-            asyncio.gather(
-                read_capped(process.stdout), read_capped(process.stderr)
-            ),
-            timeout=wall_seconds,
-        )
+        await asyncio.wait_for(read_both(), timeout=wall_seconds)
     except TimeoutError:
         timed_out = True
         _kill_group(process)
-        stdout, stderr = await asyncio.gather(
-            read_capped(process.stdout), read_capped(process.stderr)
-        )
+        # Whatever was read before the timeout is already in the buffers;
+        # drain the remainder, bounded so a detached grandchild holding an
+        # inherited pipe cannot hold the wall clock open.
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(read_both(), timeout=_DRAIN_SECONDS)
     await asyncio.gather(feeder, return_exceptions=True)
-    await process.wait()
-    return stdout, stderr, timed_out
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(process.wait(), timeout=_DRAIN_SECONDS)
+    return bytes(out_buf), bytes(err_buf), timed_out
 
 
 def _decode_capped(data: bytes, cap: int) -> tuple[str, bool]:
