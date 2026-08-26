@@ -12,23 +12,26 @@ dangerous-scheme URIs. It is a hardening transform, not a full renderer.
 
 import re
 
-# All regex patterns are bounded and use negated character classes or a lazy
-# bounded quantifier, so they run in linear time and cannot be turned into a
-# ReDoS. HTML tags are removed by a single linear scan (_strip_html_tags)
-# rather than a regex, so a tag of any length and a tag whose attributes span
-# newlines are both stripped without an unbounded or quadratic match.
+# Every pattern matches with a negated character class or a lazy quantifier
+# anchored on a required literal, so each runs in linear time and cannot be
+# turned into a ReDoS. The quantifiers are deliberately unbounded: a length
+# ceiling would let an over-long URL or alt text (an exfiltration URL is
+# naturally long) slip past the pattern that exists to defang it, and a
+# negated-class run is linear whether or not it is capped. HTML tags are
+# removed by a single linear scan (_strip_html_tags) rather than a regex, so a
+# tag of any length and a tag whose attributes span newlines are both stripped.
 # Comments are stripped first so a '>' inside a comment body does not end a
 # tag early.
-_HTML_COMMENT = re.compile(r"<!--[\s\S]{0,4000}?-->")
-_IMAGE = re.compile(r"!\[([^\]\n]{0,500})\]\([^)\n]{0,2000}\)")
+_HTML_COMMENT = re.compile(r"<!--[\s\S]*?-->")
+_IMAGE = re.compile(r"!\[([^\]\n]*)\]\([^)\n]*\)")
 # Reference-style images beacon just like inline ones: !\[alt\]\[ref\] and the
 # shortcut !\[ref\] both resolve to a URL declared in a reference definition.
-_IMAGE_REF = re.compile(r"!\[([^\]\n]{0,500})\]\[[^\]\n]{0,200}\]")
-_IMAGE_SHORTCUT = re.compile(r"!\[([^\]\n]{0,500})\](?![(\[])")
+_IMAGE_REF = re.compile(r"!\[([^\]\n]*)\]\[[^\]\n]*\]")
+_IMAGE_SHORTCUT = re.compile(r"!\[([^\]\n]*)\](?![(\[])")
 # Reference definitions carry the URL the references above resolve to, so the
 # URL is dropped even when nothing visible references it.
-_REF_DEF = re.compile(r"(?m)^([ ]{0,3})\[([^\]\n]{1,200})\]:[ \t]*\S{0,2000}.*$")
-_LINK = re.compile(r"\[([^\]\n]{0,500})\]\(([^)\s]{0,2000})\)")
+_REF_DEF = re.compile(r"(?m)^([ ]{0,3})\[([^\]\n]+)\]:[ \t]*\S*.*$")
+_LINK = re.compile(r"\[([^\]\n]*)\]\(([^)\s]*)\)")
 _DANGEROUS_SCHEME = re.compile(r"(?i)(javascript|data|vbscript|file):(?=\S)")
 
 ALLOWED_LINK_SCHEMES = frozenset({"http", "https"})
