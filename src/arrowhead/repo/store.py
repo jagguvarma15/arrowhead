@@ -67,7 +67,9 @@ class RepoStore:
     ) -> None:
         self._root = root.resolve()
         self._max_file_bytes = max_file_bytes
-        self._excluded = excluded_dirs
+        # Case-folded so exclusion holds on a case-insensitive filesystem,
+        # where ".GIT" and ".git" name the same directory.
+        self._excluded = frozenset(name.lower() for name in excluded_dirs)
 
     def _resolve(self, relative_path: str) -> Path:
         """Resolve a repo-relative path and require it to stay inside."""
@@ -77,7 +79,9 @@ class RepoStore:
         return resolved
 
     def _excluded_path(self, relative: str) -> bool:
-        return any(part in self._excluded for part in Path(relative).parts)
+        return any(
+            part.lower() in self._excluded for part in Path(relative).parts
+        )
 
     def list(
         self,
@@ -99,14 +103,19 @@ class RepoStore:
             self._root, followlinks=False
         ):
             dirnames[:] = sorted(
-                name for name in dirnames if name not in self._excluded
+                name for name in dirnames if name.lower() not in self._excluded
             )
             for name in sorted(filenames):
                 full = Path(dirpath) / name
-                if full.is_symlink() and not full.resolve().is_relative_to(
-                    self._root
-                ):
-                    continue
+                if full.is_symlink():
+                    target = full.resolve()
+                    # A link escaping the repo, or resolving into an excluded
+                    # directory (a .py link pointing at .git/config), is skipped
+                    # so its target can never be listed under the link's name.
+                    if not target.is_relative_to(self._root):
+                        continue
+                    if self._excluded_path(str(target.relative_to(self._root))):
+                        continue
                 if not full.is_file():
                     continue
                 extension = full.suffix.lower()
@@ -131,7 +140,9 @@ class RepoStore:
     def read_text(self, relative_path: str) -> str:
         """Read a text file, jailed, size-capped, and binary-refusing."""
         resolved = self._resolve(relative_path)
-        if self._excluded_path(relative_path):
+        # Exclusion is judged on the resolved path, so a case variant
+        # (.GIT/config) or a symlink into an excluded directory is refused.
+        if self._excluded_path(str(resolved.relative_to(self._root))):
             raise RepoFileNotFoundError("file not found in the repository")
         if not resolved.is_file():
             raise RepoFileNotFoundError("file not found in the repository")
@@ -152,7 +163,7 @@ class RepoStore:
         legitimately be binary; containment and the byte cap still hold.
         """
         resolved = self._resolve(relative_path)
-        if self._excluded_path(relative_path):
+        if self._excluded_path(str(resolved.relative_to(self._root))):
             raise RepoFileNotFoundError("file not found in the repository")
         if not resolved.is_file():
             raise RepoFileNotFoundError("file not found in the repository")
