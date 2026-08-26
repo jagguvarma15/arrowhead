@@ -19,6 +19,28 @@ def test_http_without_auth_refuses_to_start(monkeypatch):
     get_settings.cache_clear()
 
 
+def test_transport_security_with_only_hosts_configured():
+    # Setting one allowlist is the documented way to enable DNS-rebinding
+    # protection; it must not raise on the other list being empty.
+    from arrowhead.config import Settings
+    from arrowhead.server import transport_security
+
+    result = transport_security(Settings(allowed_hosts="mcp.example.com"))
+    assert result.allowed_hosts == ["mcp.example.com"]
+    assert result.allowed_origins == []
+
+
+def test_transport_security_with_only_origins_configured():
+    from arrowhead.config import Settings
+    from arrowhead.server import transport_security
+
+    result = transport_security(
+        Settings(allowed_origins="https://app.example.com")
+    )
+    assert result.allowed_origins == ["https://app.example.com"]
+    assert result.allowed_hosts == []
+
+
 def test_insecure_http_opt_in_is_available(monkeypatch):
     monkeypatch.setenv("ARROWHEAD_TRANSPORT", "http")
     monkeypatch.setenv("ARROWHEAD_AUTH_ENABLED", "false")
