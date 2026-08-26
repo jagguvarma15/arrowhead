@@ -27,7 +27,7 @@ the function denylist, the in-process deadline, and the read-only role.
 """
 
 import json
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 
 import anyio
@@ -200,17 +200,37 @@ def guard_read_query(query: str, *, dialect: str | None = None) -> GuardedQuery:
 
 
 def _referenced_tables(root) -> frozenset[str]:
-    """The real tables a parsed query reads, excluding CTE names."""
-    from sqlglot import exp
+    """The real base tables a parsed query reads, resolved per scope.
 
-    cte_aliases = {cte.alias for cte in root.find_all(exp.CTE) if cte.alias}
+    CTE names are excluded, but only within the scope that declares them.
+    Collecting CTE aliases globally let a decoy `WITH secrets AS (...)` in an
+    inner subquery erase an outer read of a real `secrets` table from the set
+    the authorizer sees; building the scope tree resolves each name in its own
+    scope instead. If the scope tree cannot be built, every table token is
+    treated as real, so the authorizer sees more tables, never fewer.
+    """
+    from sqlglot import exp
+    from sqlglot.optimizer.scope import build_scope
+
     tables: set[str] = set()
-    for table in root.find_all(exp.Table):
-        if not table.catalog and not table.db and table.name in cte_aliases:
-            continue
+
+    def _add(table) -> None:
         parts = [part for part in (table.catalog, table.db, table.name) if part]
         if parts:
             tables.add(".".join(parts).lower())
+
+    try:
+        root_scope = build_scope(root)
+    except Exception:
+        root_scope = None
+    if root_scope is None:
+        for table in root.find_all(exp.Table):
+            _add(table)
+        return frozenset(tables)
+    for scope in root_scope.traverse():
+        for source in scope.sources.values():
+            if isinstance(source, exp.Table):
+                _add(source)
     return frozenset(tables)
 
 
@@ -268,7 +288,10 @@ def _get_engine(dsn: str):
 async def dispose_engines() -> None:
     """Close every open engine. Called from the server lifespan on shutdown."""
     for engine in list(_engines.values()):
-        await engine.dispose()
+        # One engine failing to dispose must not strand the others or leave the
+        # registry populated; disposal is best effort on shutdown.
+        with suppress(Exception):
+            await engine.dispose()
     _engines.clear()
 
 
@@ -405,8 +428,13 @@ def _record_keys(columns: list[str]) -> list[str]:
     present: set[str] = set()
     for index, name in enumerate(columns):
         key = name
-        if key in present:
-            key = f"{key}#{index}"
+        bump = index
+        # Re-check after suffixing: a single pass could collide again when a
+        # later column's name already equals an earlier column's suffixed key
+        # (e.g. names ["x#2", "x", "x"]), silently dropping a column's values.
+        while key in present:
+            key = f"{name}#{bump}"
+            bump += 1
         present.add(key)
         keys.append(key)
     return keys
