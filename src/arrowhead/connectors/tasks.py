@@ -40,7 +40,10 @@ STATUS_FAILED = "failed"
 STATUS_CANCELLED = "cancelled"
 
 # Bound the number of retained tasks so a caller cannot grow the registry
-# without limit; the oldest finished task is dropped first, never a running one.
+# without limit; the oldest finished task is dropped first. A running task is
+# never dropped: evicting one would orphan work the caller could no longer
+# poll or cancel, so when every retained task is running, starting another
+# is refused instead.
 _MAX_TASKS = 1000
 
 
@@ -78,19 +81,11 @@ class TaskRegistry:
         self._max = max_tasks
 
     def create(self, owner: str) -> _Task:
-        task = _Task(id=secrets.token_hex(16), owner=owner)
-        self._tasks[task.id] = task
-        self._evict()
-        return task
-
-    def get(self, task_id: str, owner: str) -> _Task | None:
-        task = self._tasks.get(task_id)
-        if task is None or task.owner != owner:
-            return None
-        return task
-
-    def _evict(self) -> None:
-        while len(self._tasks) > self._max:
+        # Make room before minting the handle, dropping the oldest finished
+        # task first. With every retained task still running there is nothing
+        # safe to drop, so the new task is refused and every existing handle
+        # stays valid.
+        while len(self._tasks) >= self._max:
             terminal = next(
                 (
                     tid
@@ -99,10 +94,20 @@ class TaskRegistry:
                 ),
                 None,
             )
-            if terminal is not None:
-                del self._tasks[terminal]
-            else:
-                self._tasks.popitem(last=False)
+            if terminal is None:
+                raise ToolError(
+                    "too many tasks are running; retry after one finishes"
+                )
+            del self._tasks[terminal]
+        task = _Task(id=secrets.token_hex(16), owner=owner)
+        self._tasks[task.id] = task
+        return task
+
+    def get(self, task_id: str, owner: str) -> _Task | None:
+        task = self._tasks.get(task_id)
+        if task is None or task.owner != owner:
+            return None
+        return task
 
     async def join(self, task_id: str) -> None:
         """Await a task's background runner. For in-process callers and tests."""
