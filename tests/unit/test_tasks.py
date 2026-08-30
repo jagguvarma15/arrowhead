@@ -8,6 +8,7 @@ from arrowhead.auth.principal import as_principal
 from arrowhead.connectors.tasks import (
     STATUS_CANCELLED,
     STATUS_COMPLETED,
+    TaskRegistry,
     get_registry,
     scan_corpus_async,
     task_get,
@@ -57,3 +58,27 @@ async def test_unknown_task_action_is_refused(docs):
         await get_registry().join(handle["taskId"])
         with pytest.raises(ToolError):
             await task_update(handle["taskId"], "pause")
+
+
+def test_eviction_drops_the_oldest_finished_task_first():
+    registry = TaskRegistry(max_tasks=2)
+    finished = registry.create("alice")
+    finished.status = STATUS_COMPLETED
+    running = registry.create("alice")
+    newest = registry.create("alice")
+    assert registry.get(finished.id, "alice") is None
+    assert registry.get(running.id, "alice") is running
+    assert registry.get(newest.id, "alice") is newest
+
+
+def test_creation_is_refused_when_every_retained_task_is_running():
+    # Evicting a running task would orphan work the caller could no longer
+    # poll or cancel, so a full registry of running tasks refuses a new one
+    # and keeps every existing handle valid.
+    registry = TaskRegistry(max_tasks=2)
+    first = registry.create("alice")
+    second = registry.create("alice")
+    with pytest.raises(ToolError):
+        registry.create("alice")
+    assert registry.get(first.id, "alice") is first
+    assert registry.get(second.id, "alice") is second
