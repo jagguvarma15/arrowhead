@@ -31,6 +31,9 @@ IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 # http://[64:ff9b::a9fe:a9fe]/ reaches 169.254.169.254.
 _NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
 _V4_COMPAT_PREFIX = ipaddress.ip_network("::/96")
+# The IPv4-translated form (RFC 2765 SIIT, ::ffff:0:a.b.c.d) also embeds an
+# IPv4 address but does not set ipv4_mapped, so it needs its own prefix check.
+_V4_TRANSLATED_PREFIX = ipaddress.ip_network("::ffff:0:0:0/96")
 
 
 class BlockedURLError(Exception):
@@ -52,7 +55,11 @@ def _embedded_ipv4(address: IPAddress) -> ipaddress.IPv4Address | None:
     if address.teredo is not None:
         # (server, client); the client is the tunneled destination host.
         return address.teredo[1]
-    if address in _NAT64_PREFIX or address in _V4_COMPAT_PREFIX:
+    if (
+        address in _NAT64_PREFIX
+        or address in _V4_COMPAT_PREFIX
+        or address in _V4_TRANSLATED_PREFIX
+    ):
         return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
     return None
 
@@ -62,6 +69,10 @@ def is_blocked_address(address: IPAddress) -> bool:
     embedded = _embedded_ipv4(address)
     if embedded is not None:
         address = embedded
+    # Deprecated site-local (fec0::/10) is not in Python's is_global
+    # blocklist yet legacy stacks still route it, so refuse it explicitly.
+    if isinstance(address, ipaddress.IPv6Address) and address.is_site_local:
+        return True
     return not address.is_global or address.is_multicast
 
 
