@@ -92,6 +92,61 @@ async def test_invalid_path_never_asks(docs):
     assert isinstance(outcome, ConfirmOverwrite) and outcome.confirm
 
 
+class PeekingLimiter:
+    """Records would_allow calls and answers with a fixed verdict."""
+
+    def __init__(self, allowed):
+        self.allowed = allowed
+        self.asked = []
+
+    async def would_allow(self, component):
+        self.asked.append(component)
+        return self.allowed
+
+
+def bound_context(limiter):
+    from arrowhead.authz.confirmation import bind_rate_limiter
+
+    server = ServerStandIn()
+    bind_rate_limiter(server, limiter)
+    ctx = eliciting_context()
+    ctx.mcp_server = server
+    return ctx
+
+
+class ServerStandIn:
+    """A weakly referenceable stand-in for the MCPServer instance."""
+
+
+async def test_over_quota_caller_never_asks(docs):
+    # The resolver runs before the guard chain, so it must consult the
+    # server's limiter itself: a caller out of doc_write budget is resolved
+    # without a prompt and without touching the corpus.
+    (docs / "a.txt").write_text("existing")
+    limiter = PeekingLimiter(allowed=False)
+    outcome = await confirm_overwrite("a.txt", True, bound_context(limiter))
+    assert isinstance(outcome, ConfirmOverwrite) and outcome.confirm
+    assert limiter.asked == ["doc_write"]
+
+
+async def test_within_quota_caller_still_asks(docs):
+    (docs / "a.txt").write_text("existing")
+    limiter = PeekingLimiter(allowed=True)
+    outcome = await confirm_overwrite("a.txt", True, bound_context(limiter))
+    assert isinstance(outcome, Elicit)
+    assert limiter.asked == ["doc_write"]
+
+
+async def test_unbound_server_resolves_as_before(docs):
+    # A context whose server has no bound limiter (rate limiting disabled)
+    # keeps the pre-existing behavior: the existing target is confirmed.
+    (docs / "a.txt").write_text("existing")
+    ctx = eliciting_context()
+    ctx.mcp_server = ServerStandIn()
+    outcome = await confirm_overwrite("a.txt", True, ctx)
+    assert isinstance(outcome, Elicit)
+
+
 async def test_unauthorized_write_never_asks(docs, monkeypatch):
     from arrowhead.authz.enforce import get_authorizer
     from arrowhead.config import get_settings
