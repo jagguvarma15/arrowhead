@@ -84,6 +84,27 @@ async def test_gather_chunks_reads_the_corpus(docs):
     assert all(content.strip() for _index, content in gathered["handbook.md"])
 
 
+def test_gather_chunks_skips_unauthorized_without_spending_the_cap(
+    docs, monkeypatch
+):
+    from arrowhead.authz.enforce import get_authorizer
+    from arrowhead.connectors.pgvector_index import _gather_chunks
+
+    monkeypatch.setenv("ARROWHEAD_AUTH_ENABLED", "true")
+    monkeypatch.setenv(
+        "ARROWHEAD_AUTHZ_POLICY",
+        '{"grants": [{"subject": "*", "actions": ["read"], "prefix": "z/"}]}',
+    )
+    monkeypatch.setenv("ARROWHEAD_VECTOR_INDEX_MAX_FILES", "1")
+    get_settings.cache_clear()
+    get_authorizer.cache_clear()
+    (docs / "a.md").write_text("not readable by the tenant")
+    (docs / "z").mkdir()
+    (docs / "z" / "ok.md").write_text("readable content to index")
+    gathered, _truncated = _gather_chunks("", "tenant-a", get_settings())
+    assert list(gathered) == ["z/ok.md"]
+
+
 async def test_gather_chunks_flags_a_truncated_last_document(docs, configure_env):
     # When the chunk budget is exhausted by the last document in the walk, the
     # result must still report truncation, or the caller cannot tell the tail
@@ -180,6 +201,22 @@ class TestPartitionChunks:
         assert [(s, i) for s, i, _c, _h in flat] == [("a.md", 1)]
         assert counts == {"a.md": 2}
         assert reused == 1
+
+    def test_reuse_hash_keys_on_the_embedding_identity(self):
+        # A hash of the content alone would keep serving vectors from the
+        # old model's space after a provider, model, or dimension change;
+        # keying the hash on the embedding identity re-embeds them once.
+        from arrowhead.config import Settings
+        from arrowhead.connectors.pgvector_index import _content_hash
+
+        base = Settings(embedding_model="model-a")
+        assert _content_hash("same", base) == _content_hash("same", base)
+        assert _content_hash("same", base) != _content_hash(
+            "same", Settings(embedding_model="model-b")
+        )
+        assert _content_hash("same", base) != _content_hash(
+            "same", Settings(embedding_model="model-a", embedding_dimensions=8)
+        )
 
     def test_counts_cover_sources_with_nothing_to_write(self):
         # A fully unchanged source still reports its count, so the write
