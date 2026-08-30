@@ -39,14 +39,19 @@ if TYPE_CHECKING:
 class Arrowhead:
     """An importable handle on the hardened server.
 
-    The underlying server is built once, on first use. When settings are
-    supplied they are in effect both while the server is built and for every
-    call made through this handle.
+    The underlying server is built on first use. When settings are supplied
+    they are in effect both while the server is built and for every call
+    made through this handle. A handle without its own settings follows the
+    active ones: guard state (the rate limiter, the disabled set, scope
+    enforcement) is baked in at build time, so when the active settings are
+    a different object than the ones the server was built under, the server
+    is rebuilt rather than serving a stale configuration.
     """
 
     def __init__(self, *, settings: Settings | None = None) -> None:
         self._settings = settings
         self._server: MCPServer | None = None
+        self._built_with: Settings | None = None
 
     def _activate(self) -> AbstractContextManager:
         if self._settings is not None:
@@ -55,10 +60,13 @@ class Arrowhead:
 
     @property
     def server(self) -> MCPServer:
-        """The underlying SDK server, built on first access."""
-        if self._server is None:
-            with self._activate():
+        """The underlying SDK server, built on first access and rebuilt when
+        the active settings change identity."""
+        with self._activate():
+            active = get_settings()
+            if self._server is None or self._built_with is not active:
                 self._server = create_server()
+                self._built_with = active
         return self._server
 
     def as_principal(

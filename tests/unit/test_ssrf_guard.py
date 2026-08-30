@@ -120,6 +120,22 @@ def test_ipv6_embedded_ipv4_forms_classified_blocked():
     assert is_blocked_address(ipaddress.ip_address("::a9fe:a9fe"))
 
 
+def test_deprecated_ipv6_forms_classified_blocked():
+    # fec0::/10 is the deprecated site-local range, still honored by legacy
+    # stacks but absent from Python's is_global blocklist; ::ffff:0:a.b.c.d
+    # is the IPv4-translated form, which embeds an IPv4 address without
+    # setting ipv4_mapped. Both wrap non-public destinations.
+    assert is_blocked_address(ipaddress.ip_address("fec0::1"))
+    assert is_blocked_address(ipaddress.ip_address("fec0::a9fe:a9fe"))
+    assert is_blocked_address(ipaddress.ip_address("::ffff:0:7f00:1"))
+    assert is_blocked_address(ipaddress.ip_address("::ffff:0:a9fe:a9fe"))
+
+
+async def test_site_local_literal_rejected():
+    with pytest.raises(BlockedURLError):
+        await resolve_pinned("http://[fec0::a9fe:a9fe]/latest/meta-data/")
+
+
 async def test_nat64_literal_metadata_rejected():
     with pytest.raises(BlockedURLError):
         await resolve_pinned("http://[64:ff9b::a9fe:a9fe]/latest/meta-data/")

@@ -9,13 +9,20 @@ identity is already the token's subject; no elicitation state is
 persisted or keyed on a session, per the MCP security guidance.
 
 The resolver asks only when the write would genuinely proceed to an
-overwrite: a call that the kill switch, the scope check, input
-validation, or the per-resource policy is going to refuse is resolved
-without a question, so a refused caller can never put a prompt in front
-of a human. A client that never declared the elicitation capability is
-resolved without a question too, and the caller's explicit overwrite flag
-stands in as the opt-in, exactly as before.
+overwrite: a call that the kill switch, the rate limit, the scope check,
+input validation, or the per-resource policy is going to refuse is
+resolved without a question, so a refused caller can never put a prompt
+in front of a human. A client that never declared the elicitation
+capability is resolved without a question too, and the caller's explicit
+overwrite flag stands in as the opt-in, exactly as before.
+
+The framework resolves the confirmation before the guard chain runs, so
+the resolver cannot see the wrapper's rate limiter; the server binds its
+limiter here at build time, and the resolver peeks it without spending a
+token (the guard meters the call itself).
 """
+
+import weakref
 
 import anyio.to_thread
 from mcp.server.elicitation import (
@@ -43,9 +50,36 @@ __all__ = [
     "ConfirmOverwrite",
     "DeclinedElicitation",
     "ElicitationResult",
+    "bind_rate_limiter",
     "confirm_overwrite",
     "confirmation_declined",
 ]
+
+# Rate limiters keyed weakly by the server they meter, bound at build time.
+# The weak keys keep a rebuilt or discarded server from pinning its limiter.
+_LIMITERS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def bind_rate_limiter(server, rate_limiter) -> None:
+    """Bind a server's rate limiter for the overwrite resolver to peek."""
+    if rate_limiter is not None:
+        _LIMITERS[server] = rate_limiter
+
+
+def _rate_limiter_for(ctx: Context | None):
+    """The limiter bound to the server this request is running on, if any."""
+    if ctx is None:
+        return None
+    try:
+        server = ctx.mcp_server
+    except (ValueError, AttributeError):
+        return None
+    if server is None:
+        return None
+    try:
+        return _LIMITERS.get(server)
+    except TypeError:
+        return None
 
 
 class ConfirmOverwrite(BaseModel):
@@ -74,6 +108,9 @@ async def confirm_overwrite(
     if not overwrite or not settings.require_write_confirmation:
         return _ACCEPTED
     if "doc_write" in settings.disabled_tool_set():
+        return _ACCEPTED
+    limiter = _rate_limiter_for(ctx)
+    if limiter is not None and not await limiter.would_allow("doc_write"):
         return _ACCEPTED
     if settings.auth_enabled and not has_scope(TOOL_SCOPES["doc_write"]):
         return _ACCEPTED

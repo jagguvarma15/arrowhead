@@ -123,6 +123,41 @@ def test_list_prefix_counts_matches_before_the_cap(tmp_path):
     assert listing.truncated is False
 
 
+def test_list_prefix_names_whole_segments(tmp_path):
+    # "note" must cover the note/ subtree without spilling into notes/,
+    # which is a different directory that merely shares the spelling.
+    (tmp_path / "note").mkdir()
+    (tmp_path / "note" / "a.txt").write_text("x")
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "b.txt").write_text("y")
+    store = make_store(tmp_path)
+    listing = store.list(path_prefix="note")
+    assert {info.path for info in listing.items} == {"note/a.txt"}
+
+
+def test_list_partial_prefix_restores_starts_with_matching(tmp_path):
+    # Argument completion matches a partially typed path, so it opts back
+    # into the bare starts-with behavior.
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "a.txt").write_text("x")
+    store = make_store(tmp_path)
+    listing = store.list(path_prefix="no", partial_prefix=True)
+    assert {info.path for info in listing.items} == {"notes/a.txt"}
+    assert store.list(path_prefix="no").items == []
+
+
+def test_list_rejected_paths_do_not_consume_the_cap(tmp_path):
+    # Files the accept predicate refuses sort ahead of the one it allows;
+    # counting them against the cap would hide the real match.
+    for i in range(5):
+        (tmp_path / f"a{i}.txt").write_text("x")
+    (tmp_path / "z.txt").write_text("x")
+    store = make_store(tmp_path)
+    listing = store.list(max_files=2, accept=lambda path: path == "z.txt")
+    assert [info.path for info in listing.items] == ["z.txt"]
+    assert listing.truncated is False
+
+
 def test_list_skips_escaping_symlink(tmp_path, tmp_path_factory):
     outside = tmp_path_factory.mktemp("outside") / "secret.txt"
     outside.write_text("secret")

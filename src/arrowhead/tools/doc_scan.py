@@ -69,21 +69,24 @@ def _run_scan(path_prefix, subject, settings) -> dict:
     files_scanned = 0
     deadline = time.monotonic() + settings.scan_timeout_seconds
 
-    # The store applies the path prefix while it walks, so hitting the file
-    # cap before a match is reported as a truncated listing rather than as a
-    # silent zero result.
+    def authorized(path: str) -> bool:
+        return authorizer.authorize(
+            subject, ACTION_SCAN, Resource(kind=KIND_DOCUMENT, identifier=path)
+        ).allowed
+
+    # The store applies the path prefix and the caller's per-document
+    # authorization while it walks, so a file the caller may not scan never
+    # consumes the file cap, and hitting the cap before a match is reported
+    # as a truncated listing rather than as a silent zero result.
     listing = store.list(
         extensions=settings.doc_allowed_extension_set(),
         max_files=settings.scan_max_files,
         path_prefix=path_prefix,
+        accept=authorized,
     )
     truncated = listing.truncated
 
     for info in listing.items:
-        if not authorizer.authorize(
-            subject, ACTION_SCAN, Resource(kind=KIND_DOCUMENT, identifier=info.path)
-        ).allowed:
-            continue
         if info.size > settings.scan_per_file_max_bytes:
             continue
         if time.monotonic() > deadline:

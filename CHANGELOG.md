@@ -89,6 +89,40 @@ All notable changes to this project are recorded here. The format follows
 
 ### Fixed
 
+- The SSRF guard blocks the deprecated IPv6 site-local range (`fec0::/10`) and
+  unwraps the IPv4-translated form (`::ffff:0:a.b.c.d`), both of which Python
+  reports as globally routable, so neither can wrap a private or metadata
+  destination.
+- The overwrite confirmation resolver, which the framework runs before the
+  guard chain, now peeks the server's rate limiter without spending a token:
+  a caller out of `doc_write` budget can no longer put a confirmation prompt
+  in front of a human or reach the corpus stat behind it.
+- A full task registry with every task still running refuses to start another
+  task instead of silently dropping the oldest running one, which left work
+  that could no longer be polled or cancelled.
+- The HTTP embedding provider reads the response body incrementally up to a
+  new `ARROWHEAD_EMBEDDING_MAX_RESPONSE_BYTES` cap, and a body that is not
+  valid JSON surfaces as an embedding error instead of escaping the seam as a
+  decode exception.
+- The chunk reuse hash for `doc_index` is keyed on the embedding provider,
+  model, and dimensions as well as the content, so switching models re-embeds
+  every chunk once instead of serving vectors from the old model's space as
+  unchanged.
+- The SQL result byte budget is enforced on every row including the first, a
+  cell is bounded by bytes rather than characters, and an exactly-full result
+  is no longer flagged as truncated.
+- Listing prefixes name whole path segments, so `path_prefix="note"` covers
+  `note/` without spilling into `notes/`; argument completion keeps matching
+  a partially typed path.
+- Corpus and repo listings evaluate the caller's per-file authorization inside
+  the walk, so a file the caller may not touch no longer consumes the file
+  caps of `doc_search`, `code_search`, `doc_scan`, `doc_index`, or argument
+  completion, which could previously hide every authorized match behind the
+  cap.
+- An `Arrowhead` handle without injected settings rebuilds its server when the
+  active settings change identity, so guard state (the rate limiter, the
+  disabled set, scope enforcement) no longer goes stale across `use_settings`
+  blocks.
 - The container runner passed the CPU-seconds budget as Docker's `--cpus` core
   count, which refuses to start on small hosts and grants unbounded CPU time on
   large ones; the budget is now enforced as a CPU-time ulimit inside the

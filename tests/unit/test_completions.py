@@ -71,6 +71,34 @@ async def test_completes_matching_authorized_paths(docs):
     assert result.values == ["notes/a.md", "notes/b.md"]
 
 
+async def test_completes_a_partially_typed_segment(docs):
+    # The value is an as-you-type fragment, not a whole segment: "no" must
+    # still surface notes/a.md.
+    (docs / "notes").mkdir()
+    (docs / "notes" / "a.md").write_text("x")
+    result = await complete_argument(None, _arg("path", "no"), None)
+    assert result.values == ["notes/a.md"]
+
+
+async def test_unauthorized_paths_do_not_consume_the_candidate_cap(
+    docs, monkeypatch
+):
+    monkeypatch.setenv("ARROWHEAD_AUTH_ENABLED", "true")
+    monkeypatch.setenv(
+        "ARROWHEAD_AUTHZ_POLICY",
+        '{"grants": [{"subject": "*", "actions": ["read"], "prefix": "z/"}]}',
+    )
+    monkeypatch.setenv("ARROWHEAD_SEARCH_MAX_FILES", "2")
+    get_settings.cache_clear()
+    get_authorizer.cache_clear()
+    for index in range(5):
+        (docs / f"a{index}.txt").write_text("x")
+    (docs / "z").mkdir()
+    (docs / "z" / "ok.txt").write_text("x")
+    result = await complete_argument(None, _arg("path", ""), None)
+    assert result.values == ["z/ok.txt"]
+
+
 async def test_non_path_argument_returns_no_completion(docs):
     (docs / "a.txt").write_text("x")
     result = await complete_argument(None, _arg("query", "a"), None)

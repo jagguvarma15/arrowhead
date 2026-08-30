@@ -12,6 +12,7 @@ file may be read.
 """
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,20 @@ from arrowhead.config import Settings
 # How much of a file the binary sniff inspects. A NUL byte in this window
 # marks the file binary; source code never legitimately contains one.
 _SNIFF_BYTES = 8192
+
+
+def _prefix_match(relative: str, prefix: str, partial: bool) -> bool:
+    """Whether a path falls under a prefix.
+
+    A prefix names whole path segments: "src" covers the file src and the
+    subtree src/, but not srcs/a.py. partial restores bare starts-with
+    matching for completing a partially typed path.
+    """
+    if not prefix:
+        return True
+    if partial or prefix.endswith("/"):
+        return relative.startswith(prefix)
+    return relative == prefix or relative.startswith(prefix + "/")
 
 
 class RepoStoreError(Exception):
@@ -89,12 +104,18 @@ class RepoStore:
         extensions: frozenset[str] | None = None,
         max_files: int | None = None,
         path_prefix: str = "",
+        partial_prefix: bool = False,
+        accept: Callable[[str], bool] | None = None,
     ) -> RepoListing:
         """List files, bounded, prefix-filtered, pruned, symlink-safe.
 
-        Excluded directories are pruned from the walk itself, so nothing
-        under them is ever visited. Directory symlinks are not followed;
-        a file symlink whose target escapes the repository is skipped.
+        path_prefix names whole path segments; partial_prefix restores bare
+        starts-with matching. When accept is given, only paths it approves
+        are returned or counted, so a file the caller may not touch cannot
+        consume the cap and hide a later match. Excluded directories are
+        pruned from the walk itself, so nothing under them is ever visited.
+        Directory symlinks are not followed; a file symlink whose target
+        escapes the repository is skipped.
         """
         if not self._root.is_dir():
             return RepoListing(items=[], truncated=False)
@@ -124,7 +145,9 @@ class RepoStore:
                 relative = str(full.relative_to(self._root))
                 if self._excluded_path(relative):
                     continue
-                if path_prefix and not relative.startswith(path_prefix):
+                if not _prefix_match(relative, path_prefix, partial_prefix):
+                    continue
+                if accept is not None and not accept(relative):
                     continue
                 results.append(
                     RepoFileInfo(

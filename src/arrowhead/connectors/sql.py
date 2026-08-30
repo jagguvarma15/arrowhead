@@ -443,10 +443,10 @@ def _record_keys(columns: list[str]) -> list[str]:
 async def _collect(result, settings):
     """Drain a streamed result into capped, sanitized rows and columns.
 
-    Bytes, not characters, are counted; a single cell is length-bounded so an
-    enormous value is never sanitized or buffered in full; and the byte budget
-    is checked before a further row is appended, so no one row is accepted past
-    the cap.
+    Bytes, not characters, are counted, for each cell and for the whole
+    budget; the budget is enforced on every row including the first, so no
+    row is ever accepted past the cap. truncated is set only when a further
+    row actually existed, so an exactly-full result is not flagged.
     """
     rows: list[dict] = []
     truncated = False
@@ -463,19 +463,19 @@ async def _collect(result, settings):
         )
     keys = _record_keys(columns)
     async for row in result:
+        if len(rows) >= settings.sql_max_rows:
+            truncated = True
+            break
         record = {
             key: _cell(value, max_bytes)
             for key, value in zip(keys, row._mapping.values(), strict=True)
         }
         row_bytes = len(json.dumps(record, default=str).encode("utf-8"))
-        if rows and total_bytes + row_bytes > max_bytes:
+        if total_bytes + row_bytes > max_bytes:
             truncated = True
             break
         rows.append(record)
         total_bytes += row_bytes
-        if len(rows) >= settings.sql_max_rows or total_bytes >= max_bytes:
-            truncated = True
-            break
     await result.close()
     return rows, columns, truncated
 
@@ -497,11 +497,23 @@ def _wrap_rows(
 
 
 def _cell(value, max_len: int):
-    """Return a JSON-safe, sanitized, length-bounded form of a value."""
+    """Return a JSON-safe, sanitized, byte-bounded form of a value."""
     if isinstance(value, str):
-        return sanitize_text(value[:max_len])
+        return sanitize_text(_bounded_utf8(value, max_len))
     if value is None or isinstance(value, (int, float, bool)):
         return value
     if isinstance(value, bytes):
         return f"<{len(value)} bytes>"
-    return sanitize_text(str(value)[:max_len])
+    return sanitize_text(_bounded_utf8(str(value), max_len))
+
+
+def _bounded_utf8(text: str, max_bytes: int) -> str:
+    """Truncate to at most max_bytes of UTF-8, never splitting a character.
+
+    The cell bound shares the result budget's unit; slicing by characters
+    would admit up to four times the budget in multibyte text.
+    """
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")

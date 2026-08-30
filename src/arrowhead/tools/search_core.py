@@ -109,20 +109,23 @@ def _run_search(
     total_bytes = 0
     result_capped = False
 
-    # The store applies the path prefix while it walks, so hitting the file
-    # cap before a match is reported as a truncated listing rather than as a
-    # silent zero result.
+    def authorized(path: str) -> bool:
+        return authorizer.authorize(
+            subject, ACTION_READ, Resource(kind=point_kind, identifier=path)
+        ).allowed
+
+    # The store applies the path prefix and the caller's per-file read
+    # authorization while it walks, so an unreadable file never consumes
+    # the file cap, and hitting the cap before a match is reported as a
+    # truncated listing rather than as a silent zero result.
     listing = store.list(
         extensions=extensions(settings),
         max_files=max_files(settings),
         path_prefix=path_prefix,
+        accept=authorized,
     )
 
     for info in listing.items:
-        if not authorizer.authorize(
-            subject, ACTION_READ, Resource(kind=point_kind, identifier=info.path)
-        ).allowed:
-            continue
         try:
             raw = read(store, info.path)
         except store_error:

@@ -103,6 +103,24 @@ def test_listing_is_bounded_and_prefix_filtered(repo):
     assert all(info.path.startswith("a/") for info in listing.items)
 
 
+def test_listing_prefix_names_whole_segments(repo):
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("pass\n")
+    (repo / "srcs").mkdir()
+    (repo / "srcs" / "other.py").write_text("pass\n")
+    listing = store().list(path_prefix="src")
+    assert {info.path for info in listing.items} == {"src/app.py"}
+
+
+def test_listing_rejected_paths_do_not_consume_the_cap(repo):
+    for index in range(5):
+        (repo / f"a{index}.py").write_text("pass\n")
+    (repo / "z.py").write_text("pass\n")
+    listing = store().list(max_files=2, accept=lambda path: path == "z.py")
+    assert [info.path for info in listing.items] == ["z.py"]
+    assert listing.truncated is False
+
+
 def test_extension_filter_applies(repo):
     (repo / "app.py").write_text("pass\n")
     (repo / "image.png").write_bytes(b"\x89PNG")

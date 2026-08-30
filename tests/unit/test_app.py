@@ -35,6 +35,21 @@ async def test_the_same_handle_reuses_one_server():
     assert app.server is app.server
 
 
+async def test_a_settings_change_rebuilds_the_stale_server():
+    # Guard state is baked in at build time, so a handle that outlives one
+    # use_settings block must not serve the old configuration inside the
+    # next one: the disabled set here would otherwise never apply.
+    from arrowhead.config import use_settings
+
+    app = Arrowhead()
+    with use_settings(Settings()):
+        result = await app.call("calculate", {"expression": "1 + 1"})
+        assert result.structured_content == {"result": 2.0}
+    with use_settings(Settings(disabled_tools="calculate")):
+        with pytest.raises(ToolError):
+            await app.call("calculate", {"expression": "1 + 1"})
+
+
 async def test_list_tools_returns_the_registered_catalog_when_auth_is_off():
     app = Arrowhead()
     from arrowhead.tools.catalog import TOOL_SPECS

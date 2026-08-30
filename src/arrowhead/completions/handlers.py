@@ -84,18 +84,22 @@ def _matching_paths(subject: str, partial: str) -> list[str]:
     settings = get_settings()
     store = build_document_store(settings)
     authorizer = get_authorizer()
+
+    def authorized(path: str) -> bool:
+        return authorizer.authorize(
+            subject, ACTION_READ, Resource(kind=KIND_DOCUMENT, identifier=path)
+        ).allowed
+
     # The store prunes by prefix while it walks, so a completion never
-    # stats the whole corpus to keep a handful of candidates.
+    # stats the whole corpus to keep a handful of candidates. The value is
+    # a partially typed path, so it matches on the raw prefix rather than
+    # on whole segments, and authorization runs inside the walk so an
+    # unreadable path neither surfaces nor consumes the candidate cap.
     listing = store.list(
         extensions=settings.doc_allowed_extension_set(),
         max_files=settings.search_max_files,
         path_prefix=partial,
+        partial_prefix=True,
+        accept=authorized,
     )
-    matches = [
-        info.path
-        for info in listing.items
-        if authorizer.authorize(
-            subject, ACTION_READ, Resource(kind=KIND_DOCUMENT, identifier=info.path)
-        ).allowed
-    ]
-    return sorted(matches)
+    return sorted(info.path for info in listing.items)

@@ -119,6 +119,38 @@ class TestLimiterLifecycle:
         assert await limiter.allow("c") is False
 
 
+class TestWouldAllow:
+    async def test_peek_spends_no_token(self):
+        store = InMemoryTokenBucketStore(clock=Clock())
+        limiter = RateLimiter(store, {"c": 1})
+        for _ in range(3):
+            assert await limiter.would_allow("c") is True
+        # The token is still there for the real call.
+        assert await limiter.allow("c") is True
+
+    async def test_peek_reports_a_drained_bucket(self):
+        store = InMemoryTokenBucketStore(clock=Clock())
+        limiter = RateLimiter(store, {"c": 1})
+        assert await limiter.allow("c") is True
+        assert await limiter.would_allow("c") is False
+
+    async def test_peek_honors_explicit_zero_and_absent_ceilings(self):
+        store = InMemoryTokenBucketStore(clock=Clock())
+        limiter = RateLimiter(store, {"blocked": 0}, default_per_minute=0)
+        assert await limiter.would_allow("blocked") is False
+        assert await limiter.would_allow("absent") is True
+
+    async def test_redis_peek_spends_no_token(self):
+        # Peeking twice leaves both tokens for the two real calls; once the
+        # bucket is drained the peek reports it without writing anything.
+        store = RedisTokenBucketStore(fakeredis.aioredis.FakeRedis())
+        assert await store.peek("k", 2, 0.001) is True
+        assert await store.peek("k", 2, 0.001) is True
+        assert await store.acquire("k", 2, 0.001) is True
+        assert await store.acquire("k", 2, 0.001) is True
+        assert await store.peek("k", 2, 0.001) is False
+
+
 def _spec(name, fn):
     class Spec:
         scope = "tools:read"

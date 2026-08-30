@@ -32,6 +32,30 @@ async def test_scan_respects_path_prefix(docs):
     assert paths == {"public/a.txt"}
 
 
+async def test_unauthorized_files_do_not_consume_the_scan_cap(
+    docs, monkeypatch
+):
+    from arrowhead.authz.enforce import get_authorizer
+
+    monkeypatch.setenv("ARROWHEAD_AUTH_ENABLED", "true")
+    monkeypatch.setenv(
+        "ARROWHEAD_AUTHZ_POLICY",
+        '{"grants": [{"subject": "*", "actions": ["scan"], "prefix": "z/"}]}',
+    )
+    monkeypatch.setenv("ARROWHEAD_SCAN_MAX_FILES", "2")
+    get_settings.cache_clear()
+    get_authorizer.cache_clear()
+    # Five unauthorized files sort ahead of the one the caller may scan; if
+    # they consumed the cap the scan would report nothing at all.
+    for index in range(5):
+        (docs / f"a{index}.txt").write_text("nothing sensitive")
+    (docs / "z").mkdir()
+    (docs / "z" / "leak.txt").write_text("alice@example.com")
+    result = await doc_scan()
+    assert {f["path"] for f in result["findings"]} == {"z/leak.txt"}
+    assert result["files_scanned"] == 1
+
+
 async def test_scan_skips_oversized_files(docs, monkeypatch):
     monkeypatch.setenv("ARROWHEAD_SCAN_PER_FILE_MAX_BYTES", "8")
     get_settings.cache_clear()

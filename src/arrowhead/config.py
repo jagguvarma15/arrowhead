@@ -224,6 +224,10 @@ class Settings(BaseSettings):
     embedding_batch_size: int = 64
     embedding_timeout_seconds: float = 30.0
     embedding_max_texts: int = 10000
+    # Cap on one embedding response body, so a compromised or misconfigured
+    # endpoint cannot balloon server memory. Sized for a full batch of float
+    # vectors serialized as JSON, with generous headroom.
+    embedding_max_response_bytes: int = 8_000_000
 
     # Vector ingestion (doc_index). Writing chunks needs a write-capable
     # credential, kept separate from the read-only sql_dsn so the read tools

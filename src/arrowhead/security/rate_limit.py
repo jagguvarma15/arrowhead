@@ -41,6 +41,10 @@ class TokenBucketStore(Protocol):
         self, key: str, capacity: float, refill_per_second: float
     ) -> bool: ...
 
+    async def peek(
+        self, key: str, capacity: float, refill_per_second: float
+    ) -> bool: ...
+
     async def is_healthy(self) -> bool: ...
 
     async def aclose(self) -> None: ...
@@ -77,6 +81,21 @@ class InMemoryTokenBucketStore:
         while len(self._buckets) > self._max_entries:
             self._evict_one()
         return allowed
+
+    async def peek(
+        self, key: str, capacity: float, refill_per_second: float
+    ) -> bool:
+        """Whether acquire would succeed now, spending nothing.
+
+        The bucket is neither created, refilled in place, nor promoted in
+        the LRU, so peeking cannot change what a later acquire decides.
+        """
+        entry = self._buckets.get(key)
+        if entry is None:
+            return capacity >= 1
+        tokens, updated = entry
+        elapsed = max(0.0, self._clock() - updated)
+        return min(capacity, tokens + elapsed * refill_per_second) >= 1
 
     def _evict_one(self) -> None:
         # Prefer to drop a bucket that still has a token to spend: recreating it
@@ -126,6 +145,24 @@ redis.call('EXPIRE', KEYS[1], math.max(60, math.ceil(capacity / refill)))
 return allowed
 """
 
+# The read-only twin of the acquire script: the same refill math, but it
+# writes nothing back, so peeking can never change what acquire decides.
+_BUCKET_PEEK_LUA_SCRIPT = """
+local capacity = tonumber(ARGV[1])
+local refill = tonumber(ARGV[2])
+local t = redis.call('TIME')
+local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
+local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens') or capacity)
+local updated = tonumber(redis.call('HGET', KEYS[1], 'ts') or now)
+local elapsed = now - updated
+if elapsed < 0 then elapsed = 0 end
+tokens = math.min(capacity, tokens + elapsed * refill)
+if tokens >= 1 then
+  return 1
+end
+return 0
+"""
+
 
 class RedisTokenBucketStore:
     """Token buckets in Redis, shared by every replica.
@@ -140,11 +177,21 @@ class RedisTokenBucketStore:
     def __init__(self, client) -> None:
         self._client = client
         self._script = client.register_script(_BUCKET_LUA_SCRIPT)
+        self._peek_script = client.register_script(_BUCKET_PEEK_LUA_SCRIPT)
 
     async def acquire(
         self, key: str, capacity: float, refill_per_second: float
     ) -> bool:
         allowed = await self._script(
+            keys=[f"arrowhead:ratelimit:{key}"],
+            args=[capacity, refill_per_second],
+        )
+        return bool(allowed)
+
+    async def peek(
+        self, key: str, capacity: float, refill_per_second: float
+    ) -> bool:
+        allowed = await self._peek_script(
             keys=[f"arrowhead:ratelimit:{key}"],
             args=[capacity, refill_per_second],
         )
@@ -180,22 +227,43 @@ class RateLimiter:
         """
         return await self._check(component)
 
-    async def _check(self, component: str) -> bool:
+    def _effective_limit(self, component: str) -> int | None:
         # An explicit ceiling of zero or less means no calls, not unlimited. A
         # component with no explicit ceiling falls back to the default; a
         # non-positive default means none is configured, so it is left
-        # unlimited rather than blocked, keeping a newly added component
-        # working until a ceiling is set for it.
+        # unlimited (None) rather than blocked, keeping a newly added
+        # component working until a ceiling is set for it.
         if component in self._limits:
-            limit = self._limits[component]
-            if limit <= 0:
-                return False
-        else:
-            limit = self._default
-            if limit <= 0:
-                return True
+            return self._limits[component]
+        if self._default <= 0:
+            return None
+        return self._default
+
+    async def _check(self, component: str) -> bool:
+        limit = self._effective_limit(component)
+        if limit is None:
+            return True
+        if limit <= 0:
+            return False
         key = f"{caller_identity()}:{component}"
         return await self._store.acquire(
+            key, capacity=float(limit), refill_per_second=limit / 60.0
+        )
+
+    async def would_allow(self, component: str) -> bool:
+        """Whether a call to component would be permitted now, spending nothing.
+
+        Used by resolvers that the framework runs before the guard chain (the
+        overwrite confirmation), so an over-quota caller never reaches their
+        side effects; the guard wrapper still meters the call itself.
+        """
+        limit = self._effective_limit(component)
+        if limit is None:
+            return True
+        if limit <= 0:
+            return False
+        key = f"{caller_identity()}:{component}"
+        return await self._store.peek(
             key, capacity=float(limit), refill_per_second=limit / 60.0
         )
 

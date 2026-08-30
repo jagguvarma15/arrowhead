@@ -17,6 +17,7 @@ from mcp.server import CacheHint, MCPServer
 
 from arrowhead import __version__
 from arrowhead.auth.oauth import build_auth
+from arrowhead.authz.confirmation import bind_rate_limiter
 from arrowhead.config import get_settings
 from arrowhead.health import register_health_routes
 from arrowhead.observability.telemetry import configure_telemetry
@@ -98,6 +99,10 @@ def create_server() -> MCPServer:
         middleware=[capture_meta_middleware(), listing_middleware(guards)],
     )
     register_components(mcp, guards=guards)
+    # The overwrite confirmation resolver runs before the guard chain, so it
+    # cannot see the wrapper's limiter; bind it to this server so an
+    # over-quota caller is resolved without a prompt or a corpus stat.
+    bind_rate_limiter(mcp, rate_limiter)
     register_health_routes(mcp, rate_limiter)
     return mcp
 

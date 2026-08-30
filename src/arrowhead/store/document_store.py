@@ -11,6 +11,7 @@ containment regardless, because containment is the security boundary.
 
 import os
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,20 @@ from arrowhead.config import Settings
 # directory. Listings and the quota walk skip it so a half-written document is
 # never enumerated, read, or counted while the write is still in flight.
 _TMP_PREFIX = ".arrowhead-tmp-"
+
+
+def _prefix_match(relative: str, prefix: str, partial: bool) -> bool:
+    """Whether a path falls under a prefix.
+
+    A prefix names whole path segments: "note" covers the file note and the
+    subtree note/, but not notes/a.md. partial restores bare starts-with
+    matching for completing a partially typed path.
+    """
+    if not prefix:
+        return True
+    if partial or prefix.endswith("/"):
+        return relative.startswith(prefix)
+    return relative == prefix or relative.startswith(prefix + "/")
 
 
 class DocumentStoreError(Exception):
@@ -122,14 +137,20 @@ class DocumentStore:
         extensions: frozenset[str] | None = None,
         max_files: int | None = None,
         path_prefix: str = "",
+        partial_prefix: bool = False,
+        accept: Callable[[str], bool] | None = None,
     ) -> Listing:
         """List documents in the corpus, bounded, prefix-filtered, symlink-safe.
 
-        Only documents whose corpus-relative path starts with path_prefix are
-        returned, and the max_files cap counts those matches, so a match beyond
-        the cap sets truncated rather than silently vanishing. Directory
-        symlinks are not followed; a file symlink whose target escapes the
-        corpus is skipped rather than listed.
+        path_prefix names whole path segments (a document or a directory
+        subtree); partial_prefix restores bare starts-with matching for
+        completing a partially typed path. When accept is given, only paths
+        it approves are returned or counted, so a file the caller may not
+        touch cannot consume the cap and hide a later match. The max_files
+        cap counts the returned matches, so a match beyond the cap sets
+        truncated rather than silently vanishing. Directory symlinks are not
+        followed; a file symlink whose target escapes the corpus is skipped
+        rather than listed.
         """
         if not self._root.is_dir():
             return Listing(items=[], truncated=False)
@@ -151,7 +172,9 @@ class DocumentStore:
                 if extensions is not None and extension not in extensions:
                     continue
                 relative = str(full.relative_to(self._root))
-                if path_prefix and not relative.startswith(path_prefix):
+                if not _prefix_match(relative, path_prefix, partial_prefix):
+                    continue
+                if accept is not None and not accept(relative):
                     continue
                 results.append(
                     DocumentInfo(
