@@ -87,6 +87,47 @@ async def test_rows_are_capped_and_flagged(sql_db, monkeypatch):
     assert result["metadata"]["truncated"] is True
 
 
+async def test_an_exactly_full_result_is_not_flagged_truncated(
+    sql_db, monkeypatch
+):
+    monkeypatch.setenv("ARROWHEAD_SQL_MAX_ROWS", "3")
+    from arrowhead.config import get_settings
+
+    get_settings.cache_clear()
+    from arrowhead.connectors.sql import sql_query
+
+    result = await sql_query("SELECT id FROM users")
+    assert result["metadata"]["row_count"] == 3
+    assert result["metadata"]["truncated"] is False
+
+
+async def test_no_row_is_accepted_past_the_byte_budget(sql_db, monkeypatch):
+    # Per-cell truncation bounds each column, not the row, so a wide first
+    # row can exceed the whole budget; it must be reported as truncation,
+    # not returned as an over-budget result.
+    monkeypatch.setenv("ARROWHEAD_SQL_MAX_BYTES", "40")
+    from arrowhead.config import get_settings
+
+    get_settings.cache_clear()
+    from arrowhead.connectors.sql import sql_query
+
+    result = await sql_query(
+        "SELECT email, org, email AS spare FROM users WHERE id = 1"
+    )
+    assert result["metadata"]["row_count"] == 0
+    assert result["metadata"]["truncated"] is True
+
+
+def test_cells_are_bounded_by_bytes_not_characters():
+    from arrowhead.connectors.sql import _cell
+
+    bounded = _cell("é" * 100, 21)
+    assert len(bounded.encode("utf-8")) <= 21
+    # The cut never splits a character: 21 bytes ends mid-sequence, so the
+    # partial trailing character is dropped rather than mangled.
+    assert bounded == "é" * 10
+
+
 async def test_string_cells_are_sanitized(sql_db):
     from arrowhead.connectors.sql import sql_query
 
