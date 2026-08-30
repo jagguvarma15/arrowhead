@@ -113,7 +113,7 @@ async def doc_index(collection: str, path_prefix: str = "") -> IndexResult:
     except SqlConnectorError as exc:
         raise ToolError(str(exc)) from exc
 
-    flat, counts, reused = _partition_chunks(gathered, existing)
+    flat, counts, reused = _partition_chunks(gathered, existing, settings)
     if len(flat) > settings.embedding_max_texts:
         raise ToolError("too many chunks to embed in one call")
 
@@ -144,19 +144,24 @@ def _gather_chunks(path_prefix, tenant, settings):
     """
     store = build_document_store(settings)
     authorizer = get_authorizer()
+
+    def authorized(path: str) -> bool:
+        return authorizer.authorize(
+            tenant, ACTION_READ, Resource(kind=KIND_DOCUMENT, identifier=path)
+        ).allowed
+
+    # Authorization runs inside the walk, so a document the tenant may not
+    # read never consumes the file cap or hides a later readable one.
     listing = store.list(
         extensions=settings.doc_allowed_extension_set(),
         max_files=settings.vector_index_max_files,
         path_prefix=path_prefix,
+        accept=authorized,
     )
     truncated = listing.truncated
     gathered: dict[str, list[tuple[int, str]]] = {}
     total_chunks = 0
     for info in listing.items:
-        if not authorizer.authorize(
-            tenant, ACTION_READ, Resource(kind=KIND_DOCUMENT, identifier=info.path)
-        ).allowed:
-            continue
         try:
             data = store.read_bytes(info.path)
             content, _format = render_document(info.path, data, settings)
@@ -179,11 +184,28 @@ def _gather_chunks(path_prefix, tenant, settings):
     return gathered, truncated
 
 
-def _content_hash(content: str) -> str:
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+def _content_hash(content: str, settings=None) -> str:
+    """The reuse key for one chunk: its content and the embedding identity.
+
+    Keying the hash on the provider, model, and dimensions as well as the
+    content means changing any of them re-embeds every chunk once; a hash
+    of the content alone would keep serving vectors from the old model's
+    space as "unchanged".
+    """
+    if settings is None:
+        settings = get_settings()
+    raw = "\x00".join(
+        (
+            settings.embedding_provider,
+            settings.embedding_model,
+            str(settings.embedding_dimensions),
+            content,
+        )
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _partition_chunks(gathered, existing):
+def _partition_chunks(gathered, existing, settings=None):
     """Split the gathered chunks into what must be embedded and what holds.
 
     gathered maps source to (chunk_index, content) pairs; existing maps
@@ -198,7 +220,7 @@ def _partition_chunks(gathered, existing):
     for source, chunks in gathered.items():
         counts[source] = len(chunks)
         for index, content in chunks:
-            digest = _content_hash(content)
+            digest = _content_hash(content, settings)
             if existing.get((source, index)) == digest:
                 reused += 1
                 continue
