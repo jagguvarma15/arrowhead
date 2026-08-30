@@ -6,7 +6,11 @@ metadata, and the connection goes to the pinned address the guard approved. The
 endpoint host must be on the egress allowlist. A redirect is refused rather than
 followed, so the Authorization bearer key never travels to another host. The key
 is read from configuration and never appears in an error returned to a caller.
+The response body is read incrementally up to a configured byte cap, and every
+endpoint failure surfaces as an EmbeddingError, the seam's only exception.
 """
+
+import json
 
 import httpx
 
@@ -83,7 +87,7 @@ class HTTPEmbeddingProvider:
             extensions=extensions,
         )
         try:
-            response = await client.send(request)
+            response = await client.send(request, stream=True)
         except httpx.HTTPError as exc:
             raise EmbeddingError(
                 f"embedding request failed: {type(exc).__name__}"
@@ -95,10 +99,31 @@ class HTTPEmbeddingProvider:
                 raise EmbeddingError(
                     f"embedding endpoint returned {response.status_code}"
                 )
-            payload = response.json()
+            body = await self._read_capped(response)
         finally:
             await response.aclose()
+        try:
+            payload = json.loads(body)
+        except ValueError as exc:
+            raise EmbeddingError("embedding response was not valid JSON") from exc
         return self._vectors_from(payload, len(batch))
+
+    async def _read_capped(self, response: httpx.Response) -> bytes:
+        """Read the body incrementally, refusing it past the configured cap."""
+        cap = self._settings.embedding_max_response_bytes
+        received = bytearray()
+        try:
+            async for chunk in response.aiter_bytes():
+                received.extend(chunk)
+                if len(received) > cap:
+                    raise EmbeddingError(
+                        f"embedding response exceeded {cap} bytes"
+                    )
+        except httpx.HTTPError as exc:
+            raise EmbeddingError(
+                f"embedding response failed: {type(exc).__name__}"
+            ) from exc
+        return bytes(received)
 
     def _vectors_from(self, payload, expected: int) -> list[list[float]]:
         data = payload.get("data") if isinstance(payload, dict) else None
