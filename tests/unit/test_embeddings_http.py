@@ -99,6 +99,40 @@ async def test_dimension_mismatch_refused(make_resolver):
         await provider.embed(["x"])
 
 
+async def test_oversized_response_body_refused(make_resolver):
+    # A compromised endpoint must not balloon server memory: the body is
+    # read incrementally and refused as soon as it passes the cap.
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = {
+            "data": [{"index": 0, "embedding": [0.1, 0.2, 0.3, 0.4]}],
+            "padding": "x" * 4096,
+        }
+        return httpx.Response(200, content=json.dumps(body).encode())
+
+    provider = HTTPEmbeddingProvider(
+        _settings(embedding_max_response_bytes=1024),
+        transport=httpx.MockTransport(handler),
+        getaddrinfo=make_resolver(PUBLIC_IP),
+    )
+    with pytest.raises(EmbeddingError):
+        await provider.embed(["x"])
+
+
+async def test_malformed_json_stays_inside_the_seam(make_resolver):
+    # A body that does not parse must surface as an EmbeddingError like
+    # every other endpoint failure, not escape as a decode exception.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"not json")
+
+    provider = HTTPEmbeddingProvider(
+        _settings(),
+        transport=httpx.MockTransport(handler),
+        getaddrinfo=make_resolver(PUBLIC_IP),
+    )
+    with pytest.raises(EmbeddingError):
+        await provider.embed(["x"])
+
+
 def test_missing_endpoint_refused():
     with pytest.raises(EmbeddingError):
         HTTPEmbeddingProvider(_settings(embedding_endpoint=""))
