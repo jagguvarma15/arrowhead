@@ -1,19 +1,25 @@
 # Local development stack: the server plus Redis for shared rate-limit
 # state. Auth is left off here so MCP Inspector can connect without an
-# authorization server; enable it by setting the ARROWHEAD_OAUTH_* and
-# ARROWHEAD_AUTH_ENABLED variables before deploying anywhere real.
+# authorization server, and every published port is bound to loopback so
+# nothing on the local network can reach the unauthenticated listener.
+# The insecure-HTTP override below exists only because of that pairing;
+# enable auth by setting the ARROWHEAD_OAUTH_* and ARROWHEAD_AUTH_ENABLED
+# variables before deploying anywhere real.
 services:
   arrowhead:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       ARROWHEAD_TRANSPORT: http
       ARROWHEAD_HOST: 0.0.0.0
       ARROWHEAD_PORT: "8000"
       ARROWHEAD_AUTH_ENABLED: "false"
+      # The server refuses HTTP without auth unless this is set; the
+      # loopback port binding above is what makes the override safe here.
+      ARROWHEAD_ALLOW_INSECURE_HTTP: "true"
       ARROWHEAD_REDIS_URL: redis://redis:6379/0
       ARROWHEAD_JAIL_ROOT: /app/sandbox
       ARROWHEAD_DOCS_ROOT: /app/documents
@@ -72,7 +78,7 @@ services:
       POSTGRES_PASSWORD: arrow
       POSTGRES_DB: arrow
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - arrowhead-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -84,7 +90,7 @@ services:
   redis:
     image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
