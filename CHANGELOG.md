@@ -7,6 +7,19 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- `arrowhead list-tools --json` exports the full client-visible catalog (tools
+  with input schemas and annotations, resources, resource templates, prompts,
+  each with its scope and family) exactly as a connected client lists it under
+  the active profile, taken over the same in-process client path the golden
+  catalog conformance test uses.
+- `/ready` reports the configured SQL backend alongside the corpus and
+  rate-limit checks, probing it with a bounded trivial query; a backend that is
+  not configured is omitted rather than reported as failed, and the embedding
+  endpoint is deliberately never probed from the unauthenticated route.
+- `python -m arrowhead` runs the CLI, matching the `arrowhead` console script.
+- A publish workflow builds, scans, and pushes the container image to GitHub
+  Container Registry when a release tag is pushed; nothing publishes on
+  ordinary pushes, and no floating latest tag is created.
 - Migrated the server core onto the official MCP Python SDK (the `mcp` package,
   version 2), replacing the FastMCP framework. One streamable-HTTP endpoint now
   serves the sessionless 2026-07-28 protocol natively and handshake-era clients
@@ -89,6 +102,13 @@ All notable changes to this project are recorded here. The format follows
 
 ### Fixed
 
+- The local docker-compose stack starts again: it now sets the explicit
+  insecure-HTTP override its authless HTTP listener requires, and every
+  published port (server, Postgres, Redis) is bound to loopback so the
+  unauthenticated stack is unreachable from the local network.
+- The README no longer suggests `uvx arrowhead`, which would install an
+  unrelated package of the same name from PyPI; install paths are a checkout,
+  a git URL, or the container image.
 - The SSRF guard blocks the deprecated IPv6 site-local range (`fec0::/10`) and
   unwraps the IPv4-translated form (`::ffff:0:a.b.c.d`), both of which Python
   reports as globally routable, so neither can wrap a private or metadata

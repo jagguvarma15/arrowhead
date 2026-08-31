@@ -295,6 +295,30 @@ async def dispose_engines() -> None:
     _engines.clear()
 
 
+# The readiness probe's own deadline: short enough that an unauthenticated
+# readiness endpoint cannot be used to hold connections open, generous enough
+# for a healthy pool checkout.
+_READY_PROBE_SECONDS = 3.0
+
+
+async def backend_healthy(settings) -> bool:
+    """Whether the configured SQL backend answers a trivial probe query.
+
+    For readiness checks: every failure (missing driver extra, unreachable
+    server, exhausted pool, timeout) reads as unhealthy rather than raising,
+    so the caller can report a clean check without leaking backend details.
+    """
+    try:
+        text = _import_sqlalchemy()
+        engine = _get_engine(settings.sql_dsn)
+        with anyio.fail_after(_READY_PROBE_SECONDS):
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+    except Exception:
+        return False
+    return True
+
+
 async def sql_query(
     query: str, params: dict | None = None
 ) -> ProvenancedResult:

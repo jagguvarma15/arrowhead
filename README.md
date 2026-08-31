@@ -63,7 +63,7 @@ docker compose -f deploy/docker-compose.yml up
 the identical authorization, sanitization, and middleware path as a call over the wire:
 
 ```python
-from arrowhead.app import Arrowhead
+from arrowhead import Arrowhead
 
 app = Arrowhead()
 with app.as_principal("service:etl", {"docs:read"}):
@@ -76,12 +76,17 @@ is the default whichever door a call comes through.
 
 ## Command line
 
-The wheel ships an `arrowhead` console script, so a host can launch the server with no checkout:
+The package installs an `arrowhead` console script (from a checkout, `uv run arrowhead ...`):
 
 ```bash
-uvx arrowhead serve          # run over the configured transport
-uvx arrowhead list-tools     # print each tool and the scope it requires
+arrowhead serve              # run over the configured transport
+arrowhead list-tools         # print each tool and the scope it requires
+arrowhead list-tools --json  # the full client-visible catalog with schemas
 ```
+
+The package is not on PyPI (that name belongs to an unrelated project), so install it from a
+checkout or a git URL; deployments run the container image, which the compose file builds
+locally and a release tag publishes to GitHub Container Registry.
 
 ## What it exposes
 
@@ -146,7 +151,7 @@ check, default-deny, whose small JSON grant list can be replaced by an external 
 ## Scopes
 
 Each family's scopes are split by verb so a caller can be granted the narrowest capability it
-needs; `uvx arrowhead list-tools` prints the exact tool-to-scope mapping.
+needs; `arrowhead list-tools` prints the exact tool-to-scope mapping.
 
 | Family | Scopes |
 |---|---|
