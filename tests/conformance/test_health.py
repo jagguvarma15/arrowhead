@@ -53,6 +53,52 @@ async def test_ready_reports_checks(docs):
     assert body["checks"]["corpus_writable"] is True
 
 
+async def test_ready_omits_the_sql_check_when_unconfigured(docs):
+    app = open_app()
+    async with app.router.lifespan_context(app):
+        async with await asgi_client(app) as client:
+            response = await client.get("/ready")
+    assert response.status_code == 200
+    assert "sql_backend" not in response.json()["checks"]
+
+
+async def test_ready_reports_a_healthy_sql_backend(docs, tmp_path, monkeypatch):
+    monkeypatch.setenv(
+        "ARROWHEAD_SQL_DSN", f"sqlite+aiosqlite:///{tmp_path / 'ready.db'}"
+    )
+    from arrowhead.config import get_settings
+
+    get_settings.cache_clear()
+    app = open_app()
+    async with app.router.lifespan_context(app):
+        async with await asgi_client(app) as client:
+            response = await client.get("/ready")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["checks"]["sql_backend"] is True
+
+
+async def test_ready_reports_an_unreachable_sql_backend(
+    docs, tmp_path, monkeypatch
+):
+    # The parent directory does not exist, so opening the database fails the
+    # probe without needing a network backend in the test environment.
+    missing = tmp_path / "absent" / "ready.db"
+    monkeypatch.setenv("ARROWHEAD_SQL_DSN", f"sqlite+aiosqlite:///{missing}")
+    from arrowhead.config import get_settings
+
+    get_settings.cache_clear()
+    app = open_app()
+    async with app.router.lifespan_context(app):
+        async with await asgi_client(app) as client:
+            response = await client.get("/ready")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "not ready"
+    assert body["checks"]["sql_backend"] is False
+
+
 async def test_lifespan_closes_rate_limit_backend(docs, monkeypatch):
     import fakeredis.aioredis
 
