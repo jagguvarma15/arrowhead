@@ -101,3 +101,16 @@ def test_serve_runs_the_server(monkeypatch):
 def test_no_command_is_an_error():
     with pytest.raises(SystemExit):
         cli.main([])
+
+
+def test_module_execution_runs_the_cli():
+    import subprocess
+    import sys
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "arrowhead", "list-tools"],
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0
+    assert "safe_fetch\ttools:read" in completed.stdout
