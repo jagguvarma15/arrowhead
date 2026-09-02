@@ -3,10 +3,14 @@ import pytest
 from arrowhead.authz.policy import (
     ACTION_FETCH,
     ACTION_INGEST,
+    ACTION_NOTIFY,
     ACTION_READ,
     ACTION_SCAN,
     ACTION_SEARCH,
     ACTION_WRITE,
+    KIND_MEMORY,
+    KIND_MEMORY_PREFIX,
+    KIND_URL,
     AllowAllAuthorizer,
     Grant,
     JailPolicy,
@@ -209,3 +213,36 @@ def test_configured_policy_overrides_default():
     authorizer = build_authorizer(settings)
     assert authorizer.authorize("root", ACTION_WRITE, doc("anywhere.txt")).allowed
     assert not authorizer.authorize("alice", ACTION_READ, doc("x.txt")).allowed
+
+
+def test_default_policy_grants_memory_but_only_on_memory_kinds():
+    authorizer = build_authorizer(Settings(auth_enabled=True))
+    memory = Resource(kind=KIND_MEMORY, identifier="prefs/abc123")
+    namespace = Resource(kind=KIND_MEMORY_PREFIX, identifier="prefs")
+    assert authorizer.authorize("alice", ACTION_WRITE, memory).allowed
+    assert authorizer.authorize("alice", ACTION_READ, memory).allowed
+    assert authorizer.authorize("alice", ACTION_SEARCH, namespace).allowed
+    # The memory grant must never widen document access: a cross-subject
+    # document write stays denied exactly as before.
+    assert not authorizer.authorize(
+        "alice", ACTION_WRITE, doc("bob/n.txt")
+    ).allowed
+
+
+def test_default_policy_denies_notify():
+    authorizer = build_authorizer(Settings(auth_enabled=True))
+    url = Resource(kind=KIND_URL, identifier="https://hooks.example.com/ci")
+    assert not authorizer.authorize("alice", ACTION_NOTIFY, url).allowed
+    # The fetch action it sits beside remains granted, so the new verb is
+    # the only thing an operator must add.
+    assert authorizer.authorize("alice", ACTION_FETCH, url).allowed
+
+
+def test_a_grant_allows_notify_on_urls():
+    policy = parse_policy(
+        '{"grants": [{"subject": "*", "actions": ["notify"], '
+        '"kinds": ["url"], "prefix": ""}]}'
+    )
+    url = Resource(kind=KIND_URL, identifier="https://hooks.example.com/ci")
+    assert policy.authorize("alice", ACTION_NOTIFY, url).allowed
+    assert not policy.authorize("alice", ACTION_FETCH, url).allowed
