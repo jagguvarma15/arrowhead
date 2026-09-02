@@ -4,6 +4,9 @@ from arrowhead.security.input_validation import (
     ValidationError,
     validate_arithmetic_expression,
     validate_document_path,
+    validate_kv_key,
+    validate_memory_id,
+    validate_namespace,
     validate_relative_path,
     validate_search_query,
     validate_url,
@@ -137,3 +140,48 @@ class TestWriteContent:
 def test_backslash_path_is_rejected():
     with pytest.raises(ValidationError):
         validate_relative_path("a\\..\\..\\etc")
+
+
+class TestNamespace:
+    def test_plain_names_accepted(self):
+        for name in ("prefs", "run.2026", "a", "0-agent_state"):
+            assert validate_namespace(name) == name
+
+    def test_traversal_shapes_rejected(self):
+        for name in ("..", "a/b", "a\\b", "../etc", ".hidden", "a b"):
+            with pytest.raises(ValidationError):
+                validate_namespace(name)
+
+    def test_uppercase_and_empty_rejected(self):
+        for name in ("Prefs", "", "-lead", "_lead"):
+            with pytest.raises(ValidationError):
+                validate_namespace(name)
+
+    def test_overlong_rejected(self):
+        with pytest.raises(ValidationError):
+            validate_namespace("a" * 65)
+
+
+class TestMemoryId:
+    def test_minted_shape_accepted(self):
+        assert validate_memory_id("ab" * 16) == "ab" * 16
+
+    def test_other_shapes_rejected(self):
+        for value in ("", "short", "G" * 32, "ab" * 15 + "..", "AB" * 16):
+            with pytest.raises(ValidationError):
+                validate_memory_id(value)
+
+
+class TestKvKey:
+    def test_plain_keys_accepted(self):
+        for key in ("run:42:state", "checkpoint.7", "A_b-c"):
+            assert validate_kv_key(key) == key
+
+    def test_traversal_and_dotfile_shapes_rejected(self):
+        for key in ("..", "a/b", "a\\b", ".hidden", ":lead", "", "a b"):
+            with pytest.raises(ValidationError):
+                validate_kv_key(key)
+
+    def test_overlong_rejected(self):
+        with pytest.raises(ValidationError):
+            validate_kv_key("k" * 129)
