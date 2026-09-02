@@ -17,11 +17,16 @@ from arrowhead.tools.catalog import (
 )
 
 
-def expected_tools(profile: str, *, exec_enabled: bool = False) -> set[str]:
+def expected_tools(
+    profile: str, *, exec_enabled: bool = False, notify_allowed: bool = False
+) -> set[str]:
     families = set(PROFILES[profile])
     if not exec_enabled:
         # The exec family is gated a second time behind the enable flag.
         families.discard("exec")
+    if not notify_allowed:
+        # The notify family is gated the same way behind its allowlist.
+        families.discard("notify")
     return {spec.name for spec in TOOL_SPECS if spec.family in families}
 
 
@@ -53,7 +58,7 @@ async def test_exec_tools_appear_only_when_enabled(monkeypatch):
 async def test_full_profile_with_exec_is_the_whole_catalog(monkeypatch):
     monkeypatch.setenv("ARROWHEAD_PROFILE", "full")
     get_settings.cache_clear()
-    assert expected_tools("full", exec_enabled=True) == {
+    assert expected_tools("full", exec_enabled=True, notify_allowed=True) == {
         spec.name for spec in TOOL_SPECS
     }
 
