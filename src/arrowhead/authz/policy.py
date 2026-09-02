@@ -38,6 +38,12 @@ ACTION_INGEST = "ingest"
 # the exec_enabled flag. A wildcard action still covers it, so a broad grant
 # is a deliberate operator choice.
 ACTION_EXECUTE = "execute"
+# Posting to an outbound webhook is its own verb, absent from the default
+# grants, so notification is denied until a deployment explicitly allows it,
+# on top of the notify allowlist that gates the family's registration. A
+# wildcard action still covers it, so a broad grant is a deliberate operator
+# choice.
+ACTION_NOTIFY = "notify"
 
 # A grant prefix may contain this token, expanded to the requesting
 # subject before matching, so one rule can scope every caller to its own
@@ -69,6 +75,14 @@ KIND_TABLELESS = "tableless"
 # query (search, symbol map, dependency graph) over files beneath a path.
 KIND_REPO_FILE = "repo_file"
 KIND_REPO_PREFIX = "repo_prefix"
+# Memory resources live in their own kinds so a grant over corpus documents
+# never implicitly covers agent memories, and vice versa. A memory is a point
+# resource ("namespace/id" or "kv/key"); a memory prefix is a range query
+# (search, list) over a namespace. Entries are additionally keyed server-side
+# by the verified caller identity, so no grant can reach another owner's
+# memories regardless of its shape.
+KIND_MEMORY = "memory"
+KIND_MEMORY_PREFIX = "memory_prefix"
 
 
 @dataclass(frozen=True)
@@ -214,6 +228,16 @@ _DEFAULT_GRANTS = [
         actions=frozenset({ACTION_SEARCH, ACTION_READ}),
         prefix="",
         kinds=frozenset({KIND_REPO_FILE, KIND_REPO_PREFIX}),
+    ),
+    # Agent memory and scratchpad, kept to the memory kinds so this grant
+    # can never widen document or repo access. Ownership is enforced by the
+    # backend keying every entry on the verified caller identity, so the
+    # grant governs the capability, not whose memories are reachable.
+    Grant(
+        subject="*",
+        actions=frozenset({ACTION_SEARCH, ACTION_READ, ACTION_WRITE}),
+        prefix="",
+        kinds=frozenset({KIND_MEMORY, KIND_MEMORY_PREFIX}),
     ),
 ]
 

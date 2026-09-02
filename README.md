@@ -99,7 +99,7 @@ they are configured:
 | Profile | Families it serves |
 |---|---|
 | `core` | `core` |
-| `docs` | `core`, `docs`, `data`, `tasks` |
+| `docs` | `core`, `docs`, `data`, `tasks`, `memory`, `notify` |
 | `coding` | `core`, `data`, `repo`, `assist`, `exec`, `context` |
 | `full` (default) | every family |
 
@@ -112,7 +112,9 @@ they are configured:
 | `assist` | `code_explain`, `summarize_diff`, `rerank` | Model-backed helpers over a pluggable completion provider |
 | `exec` | `run_snippet`, `run_tests` | Sandboxed execution behind a resource-bounded runner (opt in twice) |
 | `context` | `pack_context`, `workingset_get`, `workingset_update` | A token-budgeted, secret-scanned, provenance-stamped context bundle and the working sets that feed it |
-| `tasks` | `scan_corpus_async`, `task_get`, `task_update` | Handle-based asynchronous corpus scans, owner-scoped |
+| `tasks` | `scan_corpus_async`, `task_get`, `task_update`, `task_list`, `task_schedule` | Handle-based asynchronous corpus scans and timer tasks, owner-scoped |
+| `memory` | `memory_store`, `memory_search`, `memory_list`, `memory_delete`, `kv_set`, `kv_get`, `kv_delete` | Owner-scoped agent memory (namespaced, deduplicated, honest keyword or semantic recall) and an exact-key scratchpad with expiry; file-jailed by default, Postgres-backed when configured |
+| `notify` | `notify_webhook` | An allowlisted, SSRF-guarded outbound webhook; registered only when `ARROWHEAD_NOTIFY_ALLOWLIST` is set (opt in twice) |
 
 Three capabilities go beyond what comparable coding servers offer: the guarded **context packer**
 secret-scans and provenance-stamps every snippet before it leaves the server; **hybrid, code-aware
@@ -163,6 +165,8 @@ needs; `arrowhead list-tools` prints the exact tool-to-scope mapping.
 | `exec` | `exec:run` |
 | `context` | `context:read`, `context:write` |
 | `tasks` | `docs:scan` (the scan), `tasks:read`, `tasks:write` |
+| `memory` | `memory:read`, `memory:write` |
+| `notify` | `notify:send` |
 
 ## Configuration
 

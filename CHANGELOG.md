@@ -7,6 +7,29 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- A `memory` family: owner-scoped agent memory (`memory_store`,
+  `memory_search`, `memory_list`, `memory_delete`) with namespaces,
+  content-hash dedup, and server-minted ids, plus an exact-key scratchpad
+  (`kv_set`, `kv_get`, `kv_delete`) with optional expiry. Storage sits behind
+  a backend seam: a jailed JSON file tree under `ARROWHEAD_MEMORY_ROOT` by
+  default, Postgres when `ARROWHEAD_MEMORY_DSN` is set
+  (`deploy/memory_schema.sql`), with pgvector semantic recall once the http
+  embedding provider is configured. Results carry an honest `recall` label,
+  reads are sanitized and provenance-wrapped, and every entry is keyed
+  server-side by the verified caller identity. The family joins the `docs`
+  and `full` profiles.
+- Timer tasks: `task_schedule` mints a handle that completes after a delay
+  carrying the caller's payload, with optional recurrence that respawns the
+  next occurrence under per-owner caps, and `task_list` lists the caller's
+  handles with status and kind. Timers share the in-process registry and do
+  not survive a restart, which the tool description states.
+- A `notify` family: `notify_webhook` posts JSON to operator-allowlisted URL
+  prefixes (`ARROWHEAD_NOTIFY_ALLOWLIST`), matched by parsed scheme, host,
+  port, and path boundary, SSRF-guarded and redirect-refusing even for
+  allowlisted targets, with payload and response byte caps. The family
+  registers only when the allowlist is non-empty, and the new `notify`
+  authorization action is absent from the default grants, so a deployment
+  opts in twice.
 - `arrowhead list-tools --json` exports the full client-visible catalog (tools
   with input schemas and annotations, resources, resource templates, prompts,
   each with its scope and family) exactly as a connected client lists it under

@@ -12,6 +12,7 @@ from arrowhead.connectors.tasks import (
     get_registry,
     scan_corpus_async,
     task_get,
+    task_list,
     task_update,
 )
 from arrowhead.errors import ToolError
@@ -58,6 +59,24 @@ async def test_unknown_task_action_is_refused(docs):
         await get_registry().join(handle["taskId"])
         with pytest.raises(ToolError):
             await task_update(handle["taskId"], "pause")
+
+
+async def test_task_list_shows_only_the_callers_tasks_newest_first(docs):
+    (docs / "a.md").write_text("hello")
+    with as_principal("list-owner-a", {"docs:scan", "tasks:read"}):
+        first = await scan_corpus_async("")
+        second = await scan_corpus_async("")
+        await get_registry().join(first["taskId"])
+        await get_registry().join(second["taskId"])
+        listing = await task_list()
+    ids = [entry["taskId"] for entry in listing["tasks"]]
+    assert ids.index(second["taskId"]) < ids.index(first["taskId"])
+    assert all(
+        entry["kind"] == "background" and entry["status"]
+        for entry in listing["tasks"]
+    )
+    with as_principal("list-owner-b", {"tasks:read"}):
+        assert (await task_list())["tasks"] == []
 
 
 def test_eviction_drops_the_oldest_finished_task_first():

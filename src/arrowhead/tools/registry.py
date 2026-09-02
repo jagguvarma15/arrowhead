@@ -37,12 +37,17 @@ def active_families() -> frozenset[str]:
     appears in no listing, and calling it reports it unknown, exactly
     like a tool that does not exist. The exec family is gated a second
     time behind exec_enabled, so a coding-profile deployment that has not
-    turned execution on never exposes the run tools.
+    turned execution on never exposes the run tools. The notify family is
+    gated the same way behind a non-empty allowlist, so a deployment that
+    has not named a webhook destination never lists a tool that could not
+    succeed.
     """
     settings = get_settings()
     families = PROFILES[settings.profile]
     if not settings.exec_enabled:
         families = families - {"exec"}
+    if not settings.notify_allowlist.strip():
+        families = families - {"notify"}
     return families
 
 

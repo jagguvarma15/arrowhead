@@ -213,6 +213,18 @@ class DocumentStore:
                     total += full.stat().st_size
         return total
 
+    def delete(self, relative_path: str) -> None:
+        """Delete a document, jailed; deleting a missing document raises.
+
+        Only regular files are removed. The parent directory is left in
+        place: empty directories cost nothing and removing them would race
+        a concurrent write into the same directory.
+        """
+        resolved = self._resolve(relative_path)
+        if not resolved.is_file():
+            raise DocumentNotFoundError("document not found in the corpus")
+        resolved.unlink()
+
     def write_atomic(
         self, relative_path: str, data: bytes, *, overwrite: bool = False
     ) -> DocumentInfo:

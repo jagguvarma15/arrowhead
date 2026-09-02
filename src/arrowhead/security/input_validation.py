@@ -102,6 +102,64 @@ def validate_write_content(content: str, *, max_bytes: int) -> str:
     return content
 
 
+_NAMESPACE_PATTERN = re.compile(r"[a-z0-9][a-z0-9._-]*")
+_MEMORY_ID_PATTERN = re.compile(r"[a-f0-9]{32}")
+_KV_KEY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*")
+
+MAX_NAMESPACE_LENGTH = 64
+MAX_KV_KEY_LENGTH = 128
+
+
+def validate_namespace(namespace: str) -> str:
+    """Allow only a lowercase namespace name safe to use as a path segment.
+
+    Must start with a letter or digit and continue with letters, digits,
+    dots, underscores, or hyphens, so a namespace can never traverse, hide
+    as a dotfile, or collide with the store's temporary-file prefix.
+    """
+    if not isinstance(namespace, str) or not namespace:
+        raise ValidationError("namespace must be a non-empty string")
+    if len(namespace) > MAX_NAMESPACE_LENGTH:
+        raise ValidationError(
+            f"namespace exceeds {MAX_NAMESPACE_LENGTH} characters"
+        )
+    if not _NAMESPACE_PATTERN.fullmatch(namespace):
+        raise ValidationError(
+            "namespace must start with a lowercase letter or digit and use "
+            "only lowercase letters, digits, dots, underscores, and hyphens"
+        )
+    return namespace
+
+
+def validate_memory_id(entry_id: str) -> str:
+    """Allow only the server-minted memory id shape (32 hex characters)."""
+    if not isinstance(entry_id, str) or not entry_id:
+        raise ValidationError("id must be a non-empty string")
+    if not _MEMORY_ID_PATTERN.fullmatch(entry_id):
+        raise ValidationError("id must be 32 lowercase hex characters")
+    return entry_id
+
+
+def validate_kv_key(key: str) -> str:
+    """Allow only a key shape safe to use as a single path segment.
+
+    Must start with a letter or digit and continue with letters, digits,
+    dots, underscores, colons, or hyphens. Keys land on a case-sensitive
+    segment of a jailed tree, so the same POSIX-filesystem assumption the
+    other jails document applies.
+    """
+    if not isinstance(key, str) or not key:
+        raise ValidationError("key must be a non-empty string")
+    if len(key) > MAX_KV_KEY_LENGTH:
+        raise ValidationError(f"key exceeds {MAX_KV_KEY_LENGTH} characters")
+    if not _KV_KEY_PATTERN.fullmatch(key):
+        raise ValidationError(
+            "key must start with a letter or digit and use only letters, "
+            "digits, dots, underscores, colons, and hyphens"
+        )
+    return key
+
+
 DEFAULT_DOC_EXTENSIONS = frozenset({".json", ".md", ".txt"})
 
 

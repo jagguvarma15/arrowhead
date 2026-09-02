@@ -469,6 +469,135 @@ TOOL_SPECS: list[ToolSpec] = [
             "openWorldHint": False,
         },
     ),
+    ToolSpec(
+        name="task_list",
+        import_path="arrowhead.connectors.tasks:task_list",
+        scope="tasks:read",
+        rate_limit_attr="task_list_per_minute",
+        family="tasks",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="task_schedule",
+        import_path="arrowhead.connectors.tasks:task_schedule",
+        scope="tasks:write",
+        rate_limit_attr="task_schedule_per_minute",
+        family="tasks",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="memory_store",
+        import_path="arrowhead.tools.memory:memory_store",
+        scope="memory:write",
+        rate_limit_attr="memory_store_per_minute",
+        family="memory",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="memory_search",
+        import_path="arrowhead.tools.memory:memory_search",
+        scope="memory:read",
+        rate_limit_attr="memory_search_per_minute",
+        family="memory",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="memory_list",
+        import_path="arrowhead.tools.memory:memory_list",
+        scope="memory:read",
+        rate_limit_attr="memory_list_per_minute",
+        family="memory",
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="memory_delete",
+        import_path="arrowhead.tools.memory:memory_delete",
+        scope="memory:write",
+        rate_limit_attr="memory_delete_per_minute",
+        family="memory",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="kv_set",
+        import_path="arrowhead.tools.kv:kv_set",
+        scope="memory:write",
+        rate_limit_attr="kv_set_per_minute",
+        family="memory",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="kv_get",
+        import_path="arrowhead.tools.kv:kv_get",
+        scope="memory:read",
+        rate_limit_attr="kv_get_per_minute",
+        family="memory",
+        annotations={
+            # Lazy expiry housekeeping removes an already-expired record on
+            # read; the entry is logically gone either way, so the read
+            # stays honestly read-only.
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="kv_delete",
+        import_path="arrowhead.tools.kv:kv_delete",
+        scope="memory:write",
+        rate_limit_attr="kv_delete_per_minute",
+        family="memory",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    ),
+    ToolSpec(
+        name="notify_webhook",
+        import_path="arrowhead.tools.notify:notify_webhook",
+        scope="notify:send",
+        rate_limit_attr="notify_webhook_per_minute",
+        family="notify",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    ),
 ]
 
 
@@ -536,7 +665,7 @@ ALL_FAMILIES: frozenset[str] = frozenset(
 
 PROFILES: dict[str, frozenset[str]] = {
     "core": frozenset({"core"}),
-    "docs": frozenset({"core", "docs", "data", "tasks"}),
+    "docs": frozenset({"core", "docs", "data", "tasks", "memory", "notify"}),
     "coding": frozenset({"core", "data", "repo", "assist", "exec", "context"}),
     "full": ALL_FAMILIES,
 }

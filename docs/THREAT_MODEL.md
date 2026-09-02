@@ -127,7 +127,8 @@ Every tool argument is attacker-controlled input.
 - **Surface:** a second path to corpus content (resources), a server-provided
   instruction channel (prompts), a discovery oracle (completions), and
   server-minted handles for background work (the `tasks` family:
-  `scan_corpus_async`, `task_get`, `task_update`).
+  `scan_corpus_async`, `task_get`, `task_update`, `task_list`,
+  `task_schedule`).
 - **Mitigations:** resource reads run the same per-resource authorization and
   sanitization as `doc_read`; prompts reference resources or tools rather than
   inlining untrusted content and sanitize their arguments; completions are
@@ -138,7 +139,12 @@ Every tool argument is attacker-controlled input.
   count.
 - **Residual risk:** completions confirm which authorized paths exist, the same
   inference a caller with search access already has. The task registry is in
-  process, so a task is visible only on the instance that created it.
+  process, so a task is visible only on the instance that created it; a
+  pending timer does not survive a restart, and a completed occurrence is
+  subject to the finished-task eviction like any other task. Timers are
+  additionally capped per owner in count, delay, recurrence interval, and
+  payload size, so a caller cannot park unbounded state or a tight
+  self-refiring loop in the registry.
 
 ### Repo intelligence (`code_search`, `code_read`, `symbol_map`, `dependency_graph`)
 
@@ -208,6 +214,49 @@ Every tool argument is attacker-controlled input.
 - **Residual risk:** the working set registry is in process, so a set is visible
   only on the instance that created it, the same single-instance limitation the
   task registry documents.
+
+### Memory and scratchpad (`memory_*`, `kv_*`)
+
+- **Surface:** durable caller-curated state: agent memories in namespaces and
+  an exact-key scratchpad, both landing on a jailed file tree by default or in
+  two fixed Postgres tables when configured. Names (namespace, id, key) are
+  caller-supplied strings that become path segments or bound parameters.
+- **Mitigations:** every record is keyed server-side by the verified caller
+  identity, so ownership is structural and a foreign entry reads as not found
+  regardless of policy shape; the file backend hashes the owner into the path
+  so a hostile subject string never shapes one. Names pass strict allowlist
+  validators (no separators, no dotfiles, no traversal by construction) and
+  the store enforces containment anyway. Per-owner bounds cap namespaces,
+  entries, keys, sizes, and a total quota. Reads are sanitized and framed as
+  untrusted, like document reads; recall results honestly label the search
+  performed. On Postgres every identifier in the SQL is a constant and every
+  runtime value is a bound parameter.
+- **Residual risk:** memories are deliberately not secret-scanned or blocked
+  on write — remembering user data is the tool's purpose — so what agents
+  store is governed by the deployment, and an operator who needs DLP applies
+  it downstream of reads. Content-hash dedup means a caller can confirm it
+  already stored some exact content, an inference limited to its own owner
+  scope.
+
+### Outbound notify (`notify_webhook`)
+
+- **Surface:** a deliberate egress channel that posts caller-shaped JSON to
+  an operator-named destination — the one tool whose purpose is to emit data
+  outward, and therefore an exfiltration primitive if its destination control
+  fails.
+- **Mitigations:** double opt-in (a non-empty allowlist registers the family;
+  the `notify` action must additionally be granted, and is absent from the
+  default grants). Allowlist matching parses both sides and compares scheme,
+  lowercased host, resolved port, and path on a component boundary, defeating
+  userinfo and host-suffix tricks. The SSRF guard resolves and pins even
+  allowlisted targets, so private ranges, metadata addresses, and DNS rebinds
+  are refused; redirects are refused outright. Payload and captured response
+  are byte-capped, the response is sanitized and framed as untrusted, and the
+  caller's credentials are never attached.
+- **Residual risk:** an allowlisted public destination receives whatever the
+  granted caller chooses to send; the allowlist bounds where data can go, not
+  what it says. Naming a destination is therefore an explicit operator
+  declaration that outbound data flow to it is acceptable.
 
 ## Cross-cutting
 
