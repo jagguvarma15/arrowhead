@@ -11,6 +11,7 @@ from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -263,6 +264,52 @@ class Settings(BaseSettings):
     pack_max_tokens: int = 8000
     pack_context_per_minute: int = 10
 
+    # Agent memory and scratchpad. Memories are owner-scoped records in
+    # named namespaces with content-hash dedup; the kv tools are an
+    # exact-key scratchpad with optional expiry. The backend is a jailed
+    # file tree under memory_root by default; setting memory_dsn moves
+    # storage to Postgres (a write-capable credential, kept separate from
+    # the read-only sql_dsn for the same reason vector_write_dsn is).
+    # Bounds keep one caller from growing state without limit.
+    memory_root: Path = Path("memory")
+    memory_dsn: str = ""
+    memory_max_content_bytes: int = 100_000
+    memory_max_metadata_bytes: int = 4_096
+    memory_max_entries_per_namespace: int = 500
+    memory_max_namespaces: int = 50
+    memory_quota_bytes: int = 50_000_000
+    memory_max_k: int = 20
+    kv_max_keys: int = 1000
+    kv_max_value_bytes: int = 100_000
+    kv_max_ttl_seconds: int = 604_800
+    memory_store_per_minute: int = 30
+    memory_search_per_minute: int = 60
+    memory_list_per_minute: int = 60
+    memory_delete_per_minute: int = 30
+    kv_set_per_minute: int = 60
+    kv_get_per_minute: int = 120
+    kv_delete_per_minute: int = 60
+
+    # Timer tasks (task_schedule). Timers share the in-process task
+    # registry, so they do not survive a restart; the caps bound how many
+    # running timers one owner may hold, how far out one may fire, and how
+    # tight a recurrence may be.
+    task_schedule_max_delay_seconds: float = 86_400.0
+    task_schedule_min_repeat_seconds: float = 60.0
+    task_schedule_max_per_owner: int = 20
+    task_payload_max_bytes: int = 16_384
+
+    # Outbound webhook notifications. Empty leaves the notify family
+    # unregistered, the exec_enabled pattern. Entries are comma-separated
+    # absolute http(s) URL prefixes; a target must match one on scheme,
+    # host, port, and path boundary. The SSRF guard still refuses private
+    # addresses even for an allowlisted prefix.
+    notify_allowlist: str = ""
+    notify_timeout_seconds: float = 10.0
+    notify_max_payload_bytes: int = 100_000
+    notify_max_response_bytes: int = 10_000
+    notify_webhook_per_minute: int = 10
+
     # Repo intelligence. The code tools read a jailed repository tree,
     # separate from the document corpus: read-only by construction, with
     # version-control and dependency directories pruned from every walk,
@@ -395,6 +442,8 @@ class Settings(BaseSettings):
     task_start_per_minute: int = 10
     task_get_per_minute: int = 120
     task_update_per_minute: int = 30
+    task_list_per_minute: int = 60
+    task_schedule_per_minute: int = 10
     # Ceilings for the non-tool components. Reading a resource, getting a
     # prompt, and completing an argument are each rate-limited per caller just
     # as a tool call is, so no request path is left unmetered.
@@ -477,6 +526,33 @@ class Settings(BaseSettings):
             if not 1 <= port <= 65535:
                 raise ValueError(
                     f"egress_allowed_ports has an out-of-range port: {port}"
+                )
+        return value
+
+    def notify_allowlist_entries(self) -> tuple[str, ...]:
+        """The webhook URL prefixes callers may target, in declaration
+        order; empty leaves the notify family unregistered."""
+        return tuple(
+            entry.strip()
+            for entry in self.notify_allowlist.split(",")
+            if entry.strip()
+        )
+
+    @field_validator("notify_allowlist")
+    @classmethod
+    def _validate_notify_allowlist(cls, value: str) -> str:
+        """Each entry must be an absolute http(s) URL with a host, so a
+        malformed prefix fails at startup rather than silently matching
+        nothing."""
+        for entry in value.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            parts = urlsplit(entry)
+            if parts.scheme not in ("http", "https") or not parts.hostname:
+                raise ValueError(
+                    "notify_allowlist entries must be absolute http(s) "
+                    f"URLs (got {entry!r})"
                 )
         return value
 
