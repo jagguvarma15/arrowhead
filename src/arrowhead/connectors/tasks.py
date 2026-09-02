@@ -14,9 +14,15 @@ shaped so a shared backend (the rate limiter's Redis) can hold task state for a
 multi-instance deployment later, the same recipe the other connectors follow.
 This mirrors the redesigned MCP tasks extension without adopting its wire, which
 the stable SDK does not speak.
+
+Timer tasks (task_schedule) share the registry and inherit both limitations:
+a pending timer does not survive a restart, and a completed occurrence is
+subject to the finished-task eviction like any other task.
 """
 
 import asyncio
+import json
+import math
 import secrets
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -38,6 +44,9 @@ STATUS_RUNNING = "running"
 STATUS_COMPLETED = "completed"
 STATUS_FAILED = "failed"
 STATUS_CANCELLED = "cancelled"
+
+KIND_BACKGROUND = "background"
+KIND_TIMER = "timer"
 
 # Bound the number of retained tasks so a caller cannot grow the registry
 # without limit; the oldest finished task is dropped first. A running task is
@@ -63,6 +72,20 @@ class TaskStatus(TypedDict):
     error: str | None
 
 
+class TaskListEntry(TypedDict):
+    """One owned task in a listing."""
+
+    taskId: str
+    status: str
+    kind: str
+
+
+class TaskListResult(TypedDict):
+    """Every task the caller currently owns."""
+
+    tasks: list[TaskListEntry]
+
+
 @dataclass
 class _Task:
     id: str
@@ -71,6 +94,7 @@ class _Task:
     result: dict | None = None
     error: str | None = None
     runner: asyncio.Task | None = None
+    kind: str = KIND_BACKGROUND
 
 
 class TaskRegistry:
@@ -80,7 +104,7 @@ class TaskRegistry:
         self._tasks: OrderedDict[str, _Task] = OrderedDict()
         self._max = max_tasks
 
-    def create(self, owner: str) -> _Task:
+    def create(self, owner: str, kind: str = KIND_BACKGROUND) -> _Task:
         # Make room before minting the handle, dropping the oldest finished
         # task first. With every retained task still running there is nothing
         # safe to drop, so the new task is refused and every existing handle
@@ -99,7 +123,7 @@ class TaskRegistry:
                     "too many tasks are running; retry after one finishes"
                 )
             del self._tasks[terminal]
-        task = _Task(id=secrets.token_hex(16), owner=owner)
+        task = _Task(id=secrets.token_hex(16), owner=owner, kind=kind)
         self._tasks[task.id] = task
         return task
 
@@ -108,6 +132,24 @@ class TaskRegistry:
         if task is None or task.owner != owner:
             return None
         return task
+
+    def list_for(self, owner: str) -> list[_Task]:
+        """The owner's tasks, most recently created first."""
+        return [
+            task
+            for task in reversed(self._tasks.values())
+            if task.owner == owner
+        ]
+
+    def count_running(self, owner: str, kind: str) -> int:
+        """How many of the owner's tasks of a kind are still running."""
+        return sum(
+            1
+            for task in self._tasks.values()
+            if task.owner == owner
+            and task.kind == kind
+            and task.status == STATUS_RUNNING
+        )
 
     async def join(self, task_id: str) -> None:
         """Await a task's background runner. For in-process callers and tests."""
@@ -208,3 +250,106 @@ async def task_update(task_id: str, action: str) -> TaskStatus:
         "result": task.result,
         "error": task.error,
     }
+
+
+async def task_list() -> TaskListResult:
+    """List the task handles you own with their status and kind. Poll one
+    with task_get(task_id=...). Example: task_list().
+    """
+    return {
+        "tasks": [
+            {"taskId": task.id, "status": task.status, "kind": task.kind}
+            for task in _registry.list_for(caller_identity())
+        ]
+    }
+
+
+async def task_schedule(
+    delay_seconds: float,
+    payload: dict,
+    repeat_seconds: float | None = None,
+) -> TaskHandle:
+    """Schedule a timer that completes after delay_seconds carrying your
+    payload; repeat_seconds respawns the next occurrence. Poll with
+    task_get(task_id=...); timers do not survive a restart. Example:
+    task_schedule(delay_seconds=60, payload={"note": "check build"}).
+    """
+    settings = get_settings()
+    delay = _validated_seconds(
+        delay_seconds, "delay_seconds", 0.0, settings.task_schedule_max_delay_seconds
+    )
+    repeat = None
+    if repeat_seconds is not None:
+        repeat = _validated_seconds(
+            repeat_seconds,
+            "repeat_seconds",
+            settings.task_schedule_min_repeat_seconds,
+            settings.task_schedule_max_delay_seconds,
+        )
+    if not isinstance(payload, dict):
+        raise ToolError("payload must be an object")
+    try:
+        encoded = json.dumps(payload)
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ToolError("payload must be JSON-serializable") from exc
+    if len(encoded.encode("utf-8")) > settings.task_payload_max_bytes:
+        raise ToolError(
+            f"payload exceeds {settings.task_payload_max_bytes} bytes"
+        )
+
+    task = _start_timer(caller_identity(), payload, delay, repeat, settings)
+    return {"taskId": task.id, "status": task.status}
+
+
+def _validated_seconds(
+    value, name: str, minimum: float, maximum: float
+) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ToolError(f"{name} must be a number")
+    seconds = float(value)
+    if not math.isfinite(seconds):
+        raise ToolError(f"{name} must be a finite number")
+    if seconds < minimum:
+        raise ToolError(f"{name} must be at least {minimum}")
+    if seconds > maximum:
+        raise ToolError(f"{name} must be at most {maximum}")
+    return seconds
+
+
+def _start_timer(
+    owner: str, payload: dict, delay: float, repeat: float | None, settings
+) -> _Task:
+    """Mint and start one timer occurrence under the per-owner cap."""
+    if (
+        _registry.count_running(owner, KIND_TIMER)
+        >= settings.task_schedule_max_per_owner
+    ):
+        raise ToolError(
+            "too many timers are pending; cancel one or wait for one to fire"
+        )
+    task = _registry.create(owner, kind=KIND_TIMER)
+
+    async def run() -> None:
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            task.status = STATUS_CANCELLED
+            return
+        if task.status == STATUS_CANCELLED:
+            return
+        result: dict = {"payload": payload, "next_task_id": None}
+        if repeat is not None:
+            # Respawn the next occurrence under the same caps; a refusal
+            # (cap reached, registry full) stops the recurrence and says so
+            # rather than failing this occurrence.
+            try:
+                next_task = _start_timer(owner, payload, repeat, repeat, settings)
+            except ToolError:
+                result["recurrence"] = "stopped"
+            else:
+                result["next_task_id"] = next_task.id
+        task.status = STATUS_COMPLETED
+        task.result = result
+
+    task.runner = asyncio.create_task(run())
+    return task
