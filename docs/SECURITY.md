@@ -286,7 +286,48 @@ shared rate-limit store. The wire-level tasks extension is not adopted, because
 the stable SDK the server runs on does not speak it (see "MCP specification
 and the request path" below).
 
-## Abuse controls and observability
+Timer tasks (`task_schedule`) ride the same registry and ownership rules.
+They are bounded per caller: a maximum number of pending timers per owner, a
+maximum delay, a minimum recurrence interval, and a payload byte cap, so a
+caller cannot park unbounded state or a tight self-refiring loop in the
+server. A pending timer does not survive a restart; that limitation is stated
+in the tool description itself so an agent never plans around durability the
+server does not have.
+
+## Agent memory and scratchpad
+
+The memory tools (`memory_*`, `kv_*`, scopes `memory:read` / `memory:write`)
+store caller-curated state. Ownership is structural, not policy: every record
+is keyed server-side by the verified caller identity (the same idiom as task
+ownership), so no grant shape, namespace, id, or key can reach another
+owner's entries — a foreign id is reported as simply not found. On the file
+backend the owner segment of every path is a SHA-256 of the identity, so a
+free-form subject (an email, a traversal-shaped string) never shapes a
+filesystem path; namespaces, ids, and keys pass strict allowlist validators
+and the jailed store enforces containment regardless. Bounds cap entries per
+namespace, namespaces per owner, keys per owner, content, metadata, and
+value sizes, and a total quota. Memory content is agent and user data: it is
+not secret-scanned or blocked on write, and it is sanitized and wrapped as
+untrusted data on every read, exactly like a document read. Search results
+carry a `recall` label naming the search actually performed ("keyword" or
+"semantic"), so a deployment without a real embedding provider never
+implies semantics it does not have.
+
+## Outbound notifications
+
+`notify_webhook` (scope `notify:send`) is a deliberate egress channel and is
+therefore gated twice, like execution: the `notify` family registers only
+when `ARROWHEAD_NOTIFY_ALLOWLIST` is non-empty, and the `notify` action is
+absent from the default authorization grants, so an operator both names the
+destinations and grants the verb. Allowlist matching parses both sides and
+compares scheme, host, port, and path on a component boundary, so userinfo
+(`host@evil`) and suffix (`host.evil`) tricks fail on host equality rather
+than slipping past a string prefix. Even an allowlisted target is resolved
+and pinned by the SSRF guard, so a private-range entry or a DNS rebind is
+refused; redirects are refused outright because a redirect is a different
+destination than the operator approved. Payloads and captured responses are
+byte-capped, the response is sanitized and framed as untrusted, and the
+caller's MCP credentials are never attached.
 
 - **Rate limiting** (`security/rate_limit.py`): per-caller, per-tool token
   buckets with cost-appropriate ceilings. Backed by Redis when configured so
