@@ -14,6 +14,10 @@ a record's content, most recent first among ties. Layout:
     <owner-hash>/kv/<key>.json              one scratchpad value
 """
 
+# Annotations must not evaluate in the class body: the backend defines a
+# method named list, which would shadow the builtin in later annotations.
+from __future__ import annotations
+
 import hashlib
 import json
 import secrets
