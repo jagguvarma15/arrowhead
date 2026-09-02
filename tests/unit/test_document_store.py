@@ -197,6 +197,39 @@ def test_missing_root_lists_empty(tmp_path):
     assert listing.truncated is False
 
 
+def test_delete_removes_a_document(tmp_path):
+    (tmp_path / "note.md").write_text("hello")
+    store = make_store(tmp_path)
+    store.delete("note.md")
+    assert not store.exists("note.md")
+
+
+def test_delete_missing_document_raises(tmp_path):
+    store = make_store(tmp_path)
+    with pytest.raises(DocumentNotFoundError):
+        store.delete("absent.md")
+
+
+def test_delete_refuses_a_path_outside_the_corpus(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("keep")
+    root = tmp_path / "corpus"
+    root.mkdir()
+    store = make_store(root)
+    with pytest.raises(DocumentStoreError):
+        store.delete("../outside/secret.txt")
+    assert (outside / "secret.txt").exists()
+
+
+def test_delete_leaves_the_parent_directory_in_place(tmp_path):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "a.json").write_text("{}")
+    store = make_store(tmp_path)
+    store.delete("sub/a.json")
+    assert (tmp_path / "sub").is_dir()
+
+
 def test_temp_write_files_are_not_listed_or_counted(tmp_path):
     store = make_store(tmp_path)
     (tmp_path / "real.md").write_text("hello")
