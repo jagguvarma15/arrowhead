@@ -77,6 +77,14 @@ def docs(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def memory_jail(tmp_path, monkeypatch):
+    """Point the memory root at a temporary directory."""
+    monkeypatch.setenv("ARROWHEAD_MEMORY_ROOT", str(tmp_path))
+    get_settings.cache_clear()
+    return tmp_path
+
+
+@pytest.fixture
 def make_resolver():
     """Factory for getaddrinfo stand-ins returning fixed addresses."""
 
