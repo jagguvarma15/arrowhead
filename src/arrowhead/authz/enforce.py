@@ -13,6 +13,8 @@ from arrowhead.auth.identity import caller_identity
 from arrowhead.authz.policy import (
     KIND_DOCUMENT,
     KIND_FILE,
+    KIND_MEMORY,
+    KIND_MEMORY_PREFIX,
     KIND_PREFIX,
     KIND_REPO_FILE,
     KIND_REPO_PREFIX,
@@ -38,6 +40,8 @@ _RESOURCE_NOUN = {
     KIND_FILE: "file",
     KIND_REPO_FILE: "file",
     KIND_REPO_PREFIX: "path",
+    KIND_MEMORY: "memory",
+    KIND_MEMORY_PREFIX: "namespace",
 }
 
 
