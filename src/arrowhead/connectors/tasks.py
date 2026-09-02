@@ -337,18 +337,25 @@ def _start_timer(
             return
         if task.status == STATUS_CANCELLED:
             return
+        # Completed before the respawn so a finished occurrence never
+        # counts against the per-owner cap it would hand its slot to. No
+        # await separates the flip from the result below, so a poller can
+        # never observe the one without the other.
+        task.status = STATUS_COMPLETED
         result: dict = {"payload": payload, "next_task_id": None}
         if repeat is not None:
-            # Respawn the next occurrence under the same caps; a refusal
-            # (cap reached, registry full) stops the recurrence and says so
-            # rather than failing this occurrence.
+            # Respawn the next occurrence under the caps as they stand
+            # now, so an operator's changed bounds govern future
+            # occurrences; a refusal (cap reached, registry full) stops
+            # the recurrence and says so rather than failing this one.
             try:
-                next_task = _start_timer(owner, payload, repeat, repeat, settings)
+                next_task = _start_timer(
+                    owner, payload, repeat, repeat, get_settings()
+                )
             except ToolError:
                 result["recurrence"] = "stopped"
             else:
                 result["next_task_id"] = next_task.id
-        task.status = STATUS_COMPLETED
         task.result = result
 
     task.runner = asyncio.create_task(run())
