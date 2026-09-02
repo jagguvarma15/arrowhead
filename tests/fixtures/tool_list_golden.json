@@ -248,6 +248,141 @@
     },
     {
       "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Delete the scratchpad value stored for an exact key you own.\nExample: kv_delete(key=\"run:42:state\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "key"
+      ],
+      "input_required": [
+        "key"
+      ],
+      "name": "kv_delete",
+      "scope": "memory:write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Get the scratchpad value stored for an exact key you own. An expired\nor missing key is reported as not found. Example:\nkv_get(key=\"run:42:state\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "key"
+      ],
+      "input_required": [
+        "key"
+      ],
+      "name": "kv_get",
+      "scope": "memory:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Set a scratchpad value for an exact key, replacing any prior value.\nttl_seconds expires it; keys use letters, digits, and . _ : - only.\nExample: kv_set(key=\"run:42:state\", value=\"phase2\", ttl_seconds=600).",
+      "has_output_schema": true,
+      "input_properties": [
+        "key",
+        "ttl_seconds",
+        "value"
+      ],
+      "input_required": [
+        "key",
+        "value"
+      ],
+      "name": "kv_set",
+      "scope": "memory:write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Delete one memory you own by namespace and id. An id you do not own\nis reported as not found. Example: memory_delete(namespace=\"prefs\",\nid=\"3f2a...\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "id",
+        "namespace"
+      ],
+      "input_required": [
+        "id",
+        "namespace"
+      ],
+      "name": "memory_delete",
+      "scope": "memory:write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List the ids and metadata of the memories in a namespace you own.\nExample: memory_list(namespace=\"prefs\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "namespace"
+      ],
+      "input_required": [
+        "namespace"
+      ],
+      "name": "memory_list",
+      "scope": "memory:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Recall the memories in a namespace you own most relevant to a query.\nRecall is keyword on the file backend and semantic when an embedding\nprovider is configured. Example: memory_search(namespace=\"prefs\",\nquery=\"units\", k=5).",
+      "has_output_schema": true,
+      "input_properties": [
+        "k",
+        "namespace",
+        "query"
+      ],
+      "input_required": [
+        "namespace",
+        "query"
+      ],
+      "name": "memory_search",
+      "scope": "memory:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Store a memory in a namespace you own and return its id. Identical\ncontent returns the existing id unchanged; pass id to update an entry\nin place. Example: memory_store(namespace=\"prefs\", content=\"prefers\nmetric units\").",
+      "has_output_schema": true,
+      "input_properties": [
+        "content",
+        "id",
+        "metadata",
+        "namespace"
+      ],
+      "input_required": [
+        "content",
+        "namespace"
+      ],
+      "name": "memory_store",
+      "scope": "memory:write"
+    },
+    {
+      "annotations": {
         "destructiveHint": false,
         "openWorldHint": false,
         "readOnlyHint": true
@@ -401,6 +536,40 @@
       ],
       "name": "task_get",
       "scope": "tasks:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List the task handles you own with their status and kind. Poll one\nwith task_get(task_id=...). Example: task_list().",
+      "has_output_schema": true,
+      "input_properties": [],
+      "input_required": [],
+      "name": "task_list",
+      "scope": "tasks:read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Schedule a timer that completes after delay_seconds carrying your\npayload; repeat_seconds respawns the next occurrence. Poll with\ntask_get(task_id=...); timers do not survive a restart. Example:\ntask_schedule(delay_seconds=60, payload={\"note\": \"check build\"}).",
+      "has_output_schema": true,
+      "input_properties": [
+        "delay_seconds",
+        "payload",
+        "repeat_seconds"
+      ],
+      "input_required": [
+        "delay_seconds",
+        "payload"
+      ],
+      "name": "task_schedule",
+      "scope": "tasks:write"
     },
     {
       "annotations": {
