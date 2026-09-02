@@ -149,7 +149,12 @@ src/arrowhead/
     pgvector.py          pgvector search with server-side tenant isolation
     hybrid.py            vector + full-text fusion retrieval
     pgvector_index.py    diff-aware chunk-and-embed ingestion
-    tasks.py             handle-based async tasks, owner-scoped
+    tasks.py             handle-based async tasks and timers, owner-scoped
+  memory/
+    base.py              the memory backend seam: memories + kv scratchpad
+    factory.py           file backend by default, Postgres when memory_dsn set
+    file_backend.py      jailed JSON records, hashed-owner paths, keyword recall
+    postgres_backend.py  fixed-table SQL, optional pgvector semantic recall
   embeddings/
     base.py, factory.py  the embedding provider seam
     deterministic.py     offline stdlib embedder for tests and demos
@@ -198,10 +203,23 @@ src/arrowhead/
 ```
 
 The request path itself is stateless — any instance can serve any request,
-and the rate-limit buckets live in shared Redis. The one piece of durable
-local state is the write-capable document corpus, which is backed by a
-persistent disk. Because a disk attaches to a single instance, the reference
-deployment runs **one** instance so the corpus stays consistent; scaling the
-write corpus horizontally means moving it behind object storage (a roadmap
-item) so the request tier can again run many replicas. See `deploy/` for the
-container image and the Render and Fly.io blueprints.
+and the rate-limit buckets live in shared Redis. The durable local state is
+the write-capable document corpus and, in the default file-backed
+configuration, the agent memory root, both on a persistent disk. Because a
+disk attaches to a single instance, the reference deployment runs **one**
+instance so the corpus stays consistent; scaling the write tier horizontally
+means moving the corpus behind object storage (a roadmap item) and pointing
+memory at Postgres (`ARROWHEAD_MEMORY_DSN`, supported today) so the request
+tier can again run many replicas. See `deploy/` for the container image and
+the Render and Fly.io blueprints.
+
+Three families carry their own architectural gates. Memory sits behind a
+backend seam like the embedding and completion providers: the jailed file
+backend needs no configuration and reports keyword recall, the Postgres
+backend takes over when `ARROWHEAD_MEMORY_DSN` is set, and semantic recall
+only engages when the real embedding provider is configured, so a search
+result's `recall` label always tells the truth. Timer tasks share the
+in-process task registry and its documented single-instance limitation: a
+pending timer does not survive a restart. The notify family is registered
+only when `ARROWHEAD_NOTIFY_ALLOWLIST` is non-empty (the exec_enabled
+pattern) so the default catalog never lists a tool that cannot succeed.
