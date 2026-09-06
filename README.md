@@ -195,6 +195,10 @@ runbook, including verification, rollback, and corpus backup.
 
 ## Documentation
 
+The full site lives at [jagguvarma15.github.io/arrowhead](https://jagguvarma15.github.io/arrowhead/),
+built from `docs/` on every merge with tool and configuration references generated straight
+from the code. The same documents render here:
+
 - [`docs/SECURITY.md`](docs/SECURITY.md) &mdash; each mitigation mapped to the vulnerability class it closes
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) &mdash; attack surface per tool and what is out of scope
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) &mdash; request flow from auth through rate limiting to the tool and the audit log

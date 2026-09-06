@@ -1,0 +1,76 @@
+# The documentation site, published to GitHub Pages by the docs workflow.
+# docs/ is the site source: the repository's existing documents render as
+# pages unchanged, and the two reference pages are generated from the code
+# at build time by scripts/gen_reference.py (they never exist on disk).
+site_name: Arrowhead
+site_description: The fast, secure data plane for AI agents.
+site_url: https://jagguvarma15.github.io/arrowhead/
+repo_url: https://github.com/jagguvarma15/arrowhead
+repo_name: jagguvarma15/arrowhead
+edit_uri: ""
+
+theme:
+  name: material
+  logo: assets/arrowhead-dark.svg
+  favicon: assets/arrowhead.svg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+hooks:
+  - scripts/gen_reference.py
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Integrations: INTEGRATIONS.md
+  - Reference:
+      - Tools: reference/tools.md
+      - Configuration: reference/configuration.md
+  - Security:
+      - Security model: SECURITY.md
+      - Threat model: THREAT_MODEL.md
+  - Architecture: ARCHITECTURE.md
+  - Deployment: DEPLOY.md
+  - Examples:
+      - Docs RAG: examples/docs-rag.md
+      - Coding agent: examples/coding-agent.md
+  - Contributing: contributing.md
+  - FAQ: faq.md

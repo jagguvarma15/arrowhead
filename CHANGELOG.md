@@ -3,6 +3,17 @@
 All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- A documentation site published to GitHub Pages, built from `docs/` by MkDocs
+  Material. The tool reference renders the catalog's wire descriptions and the
+  configuration reference renders every setting with its real default, both
+  generated at build time by a native MkDocs hook and cross-checked against the
+  code, so the site cannot drift from the surface it documents. A strict site
+  build runs on every pull request.
+
 ## [0.2.832] - 2026-09-06
 
 ### Added
