@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Arrowhead">
+  <title>Arrowhead</title>
+  <path d="M64 12 L108 96 L80 84 L76 118 L52 118 L48 84 L20 96 Z" fill="#EAEDF1"/>
+  <path d="M64 12 L53 45 L75 45 Z" fill="#C6693E"/>
+  <g fill="none" stroke="#9AA3AD" stroke-width="2.4" stroke-linecap="round" opacity="0.6">
+    <path d="M64 30 L64 104"/>
+    <path d="M64 52 L43 78"/>
+    <path d="M64 52 L85 78"/>
+  </g>
+</svg>
