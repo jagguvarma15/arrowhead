@@ -1,0 +1,186 @@
+---
+title: Connecting a client
+description: Per-client setup for Claude, Cursor, VS Code, the Agent SDK, and any MCP client.
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Arrowhead speaks the Model Context Protocol over two transports: stdio for
+local use and streamable HTTP for a deployed server. Local stdio runs with auth
+off, so every tool is immediately callable; a deployed HTTP server verifies an
+OAuth 2.1 bearer token and enforces per-caller scopes. Pick the transport your
+client supports and give it the command or URL below.
+
+The examples run the server from a source checkout with `uv`. Replace
+`/path/to/arrowhead` with your checkout, or swap the command for the published
+container image: `docker run --rm -i -e ARROWHEAD_TRANSPORT=stdio
+ghcr.io/jagguvarma15/arrowhead:0.2.832`.
+
+Set `ARROWHEAD_PROFILE` to expose only the tool families a client needs: a
+coding host wants `coding`, a documentation service `docs`, and the default
+`full` exposes everything. A smaller profile means fewer tools in the client's
+context. The `exec` family stays hidden until `ARROWHEAD_EXEC_ENABLED` is set,
+even under the `coding` or `full` profile.
+
+## One-click install
+
+Both links register the published container image over stdio; Docker pulls it
+on first run.
+
+[![Add to Cursor](https://img.shields.io/badge/Add_to-Cursor-C6693E?style=flat-square&labelColor=1D2024)](cursor://anysphere.cursor-deeplink/mcp/install?name=arrowhead&config=eyJjb21tYW5kIjogImRvY2tlciIsICJhcmdzIjogWyJydW4iLCAiLS1ybSIsICItaSIsICItZSIsICJBUlJPV0hFQURfVFJBTlNQT1JUPXN0ZGlvIiwgImdoY3IuaW8vamFnZ3V2YXJtYTE1L2Fycm93aGVhZDowLjIuODMyIl19)
+[![Install in VS Code](https://img.shields.io/badge/Install_in-VS_Code-33717E?style=flat-square&labelColor=1D2024)](vscode:mcp/install?%7B%22name%22%3A%20%22arrowhead%22%2C%20%22command%22%3A%20%22docker%22%2C%20%22args%22%3A%20%5B%22run%22%2C%20%22--rm%22%2C%20%22-i%22%2C%20%22-e%22%2C%20%22ARROWHEAD_TRANSPORT%3Dstdio%22%2C%20%22ghcr.io%2Fjagguvarma15%2Farrowhead%3A0.2.832%22%5D%7D)
+
+## Per-client setup
+
+<Tabs syncKey="client">
+  <TabItem label="Claude Code">
+    Register the server with the CLI:
+
+    ```bash
+    claude mcp add arrowhead -- uv run python -m arrowhead.server
+    ```
+
+    For a deployed HTTP server, add it by URL and supply the bearer token:
+
+    ```bash
+    claude mcp add --transport http arrowhead https://arrowhead.example/mcp \
+      --header "Authorization: Bearer $TOKEN"
+    ```
+  </TabItem>
+  <TabItem label="Claude Desktop">
+    Add an entry to the Claude Desktop configuration file
+    (`~/Library/Application Support/Claude/claude_desktop_config.json` on
+    macOS):
+
+    ```json
+    {
+      "mcpServers": {
+        "arrowhead": {
+          "command": "uv",
+          "args": ["run", "python", "-m", "arrowhead.server"],
+          "cwd": "/path/to/arrowhead"
+        }
+      }
+    }
+    ```
+
+    Restart Claude Desktop; the Arrowhead tools appear in the tools menu.
+  </TabItem>
+  <TabItem label="Cursor">
+    Create `.cursor/mcp.json` in the project (or the global
+    `~/.cursor/mcp.json`):
+
+    ```json
+    {
+      "mcpServers": {
+        "arrowhead": {
+          "command": "uv",
+          "args": ["run", "python", "-m", "arrowhead.server"],
+          "cwd": "/path/to/arrowhead"
+        }
+      }
+    }
+    ```
+  </TabItem>
+  <TabItem label="VS Code">
+    Create `.vscode/mcp.json` in the workspace:
+
+    ```json
+    {
+      "servers": {
+        "arrowhead": {
+          "type": "stdio",
+          "command": "uv",
+          "args": ["run", "python", "-m", "arrowhead.server"],
+          "cwd": "/path/to/arrowhead"
+        }
+      }
+    }
+    ```
+  </TabItem>
+  <TabItem label="Agent SDK">
+    The Claude Agent SDK (Python) connects to an MCP server defined in its
+    options. The exact field names track the SDK version, so check its docs;
+    the shape is:
+
+    ```python
+    from claude_agent_sdk import ClaudeAgentOptions, query
+
+    options = ClaudeAgentOptions(
+        mcp_servers={
+            "arrowhead": {
+                "type": "stdio",
+                "command": "uv",
+                "args": ["run", "python", "-m", "arrowhead.server"],
+            }
+        },
+        allowed_tools=[
+            "mcp__arrowhead__vector_query",
+            "mcp__arrowhead__doc_read",
+        ],
+    )
+
+    async for message in query(prompt="Summarize the refund policy", options=options):
+        print(message)
+    ```
+
+    To reach a deployed server instead, point the entry at the HTTP URL and
+    pass the bearer token in a header rather than a stdio command.
+  </TabItem>
+  <TabItem label="Generic HTTP">
+    Any client that speaks streamable HTTP connects to the `/mcp` endpoint of
+    a deployed server and authenticates with a bearer token:
+
+    ```
+    POST https://arrowhead.example/mcp
+    Authorization: Bearer <token>
+    ```
+
+    A client with no token receives 401 and a pointer to
+    `/.well-known/oauth-protected-resource/mcp` (RFC 9728), which names the
+    authorization server to complete an OAuth 2.1 flow against. Arrowhead
+    issues no tokens itself; it only verifies them. The caller sees only the
+    tools whose scope its token holds.
+
+    A client that speaks the sessionless 2026-07-28 protocol sends its
+    requests with the reserved `_meta` envelope and no `initialize`
+    handshake; a handshake-era client sends `initialize` first. The same
+    endpoint serves both.
+  </TabItem>
+</Tabs>
+
+## agent-scaffold projects
+
+A project generated by the agent-scaffold CLI consumes arrowhead as a
+streamable-HTTP MCP server in its local docker stack: the `docs` profile,
+`ARROWHEAD_TRANSPORT=http`, and, because every published port is bound to
+loopback, auth off with `ARROWHEAD_ALLOW_INSECURE_HTTP=true`. The scaffold
+writes the servers a recipe declares into an `mcp.json` registry at the
+generated project's root; the generated agent reads that file at boot and
+registers each server with its framework's MCP support. No entry carries a
+secret value, only env var names. A deployed stack replaces the loopback
+arrangement with the OAuth 2.1 setup, unchanged.
+
+`arrowhead list-tools --json` prints the exact catalog such an agent will see
+under the active profile, including input schemas, for recipe authors who want
+to pin or document the surface.
+
+## Pinning the tool surface
+
+A client that pins the tool surface it consented to can read the
+`arrowhead://integrity` resource, which returns a sha256 digest of the enabled
+tools, and compare it each session to detect a later change.
+
+## A note on scopes
+
+Over HTTP the token's scopes decide which tools are visible. The retrieval
+tools need `vector:search` (for `vector_query` and `hybrid_query`) and
+`vector:write` (for `doc_index`), and `doc_index` additionally requires the
+`ingest` action to be granted in the per-resource policy, which the default
+policy denies. The coding families use `repo:read` and `repo:search` for the
+repository tools, `assist:run` for the model-backed helpers, `exec:run` plus
+the `execute` action for sandboxed execution, and `context:read` and
+`context:write` for the packer and working sets. The
+[tool reference](/arrowhead/reference/tools/) carries the full tool-to-scope
+mapping, and the [security model](/arrowhead/security/) describes the
+authorization model.
