@@ -1,0 +1,124 @@
+---
+title: Arrowhead
+description: The fast, secure data plane for AI agents.
+template: splash
+hero:
+  tagline: A hardened Model Context Protocol server and an importable Python library for exposing your infrastructure to AI agents, with no unguarded path.
+  image:
+    light: ../../assets/arrowhead.svg
+    dark: ../../assets/arrowhead-dark.svg
+    alt: Arrowhead
+  actions:
+    - text: Get started
+      link: /arrowhead/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: Tool reference
+      link: /arrowhead/reference/tools/
+      icon: open-book
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/jagguvarma15/arrowhead
+      icon: github
+      variant: minimal
+---
+
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+The safe path is the default path. OAuth 2.1 authorization, per-resource
+authorization, SSRF and path-traversal defenses, content sanitization and
+provenance, per-caller rate limiting, structured audit logging, and
+token-efficient schemas apply to every tool, resource, and prompt. Security lives
+inside each component rather than in a proxy in front of it, so the guarantees
+hold whether a call arrives over HTTP or the server is imported and called
+directly from Python.
+
+## Run it
+
+<Tabs>
+  <TabItem label="From a checkout" icon="seti:python">
+    ```bash
+    git clone https://github.com/jagguvarma15/arrowhead.git
+    cd arrowhead
+    uv sync
+    uv run python -m arrowhead.server
+    ```
+  </TabItem>
+  <TabItem label="Container image" icon="seti:docker">
+    ```bash
+    docker run --rm -i -e ARROWHEAD_TRANSPORT=stdio \
+      ghcr.io/jagguvarma15/arrowhead:0.2.832
+    ```
+  </TabItem>
+</Tabs>
+
+Auth is off in stdio mode, so every tool is immediately callable. To register it
+with an MCP client, the shape is always the same entry:
+
+```json
+{
+  "mcpServers": {
+    "arrowhead": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "arrowhead.server"],
+      "cwd": "/path/to/arrowhead"
+    }
+  }
+}
+```
+
+One-click installs and per-client instructions live in
+[Integrations](/arrowhead/integrations/).
+
+## Find your way
+
+<CardGrid>
+  <Card title="Getting started" icon="rocket">
+    Install from a checkout, pick a profile, make the first guarded call, and
+    see where auth begins.
+    [Start here](/arrowhead/getting-started/)
+  </Card>
+  <Card title="Integrations" icon="puzzle">
+    Tabbed, copy-paste setup for Claude Desktop, Claude Code, Cursor, VS Code,
+    the Agent SDK, and any MCP client, with one-click install links.
+    [Connect a client](/arrowhead/integrations/)
+  </Card>
+  <Card title="Tool reference" icon="open-book">
+    Every tool with its wire description, scope, rate ceiling, and behavior
+    hints, generated from the catalog at build time.
+    [Browse the catalog](/arrowhead/reference/tools/)
+  </Card>
+  <Card title="Configuration" icon="setting">
+    Every environment variable with its real default, cross-checked against the
+    code so the page cannot drift.
+    [Look up a setting](/arrowhead/reference/configuration/)
+  </Card>
+  <Card title="Security model" icon="approve-check">
+    Each mitigation mapped to the vulnerability class it closes, from SSRF to
+    prompt injection via tool results.
+    [Read the model](/arrowhead/security/)
+  </Card>
+  <Card title="Threat model" icon="warning">
+    The attack surface tool by tool, cross-cutting concerns, and what is
+    explicitly out of scope.
+    [Weigh the risks](/arrowhead/threat-model/)
+  </Card>
+  <Card title="Architecture" icon="random">
+    The request flow from auth through rate limiting to the tool and the audit
+    log, and the module layout.
+    [See the shape](/arrowhead/architecture/)
+  </Card>
+  <Card title="Deployment" icon="cloud-download">
+    The step-by-step runbook for a live instance: platform, auth, verification,
+    rollback, and backup.
+    [Ship an instance](/arrowhead/deployment/)
+  </Card>
+</CardGrid>
+
+Runnable walkthroughs live in [Examples](/arrowhead/examples/docs-rag/),
+development setup and conventions in
+[Contributing](/arrowhead/contributing/), common failure modes in the
+[FAQ](/arrowhead/faq/), and the protocol surface in the
+[capability matrix](/arrowhead/reference/capabilities/). Agents can read this
+site as [llms.txt](https://jagguvarma15.github.io/arrowhead/llms.txt) or fetch
+any page's raw markdown by appending `.md` to its path.

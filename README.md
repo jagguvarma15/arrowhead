@@ -196,8 +196,10 @@ runbook, including verification, rollback, and corpus backup.
 ## Documentation
 
 The full site lives at [jagguvarma15.github.io/arrowhead](https://jagguvarma15.github.io/arrowhead/),
-built from `docs/` on every merge with tool and configuration references generated straight
-from the code. The same documents render here:
+built on every merge from `docs/` and the Astro project under `website/`, with tool,
+configuration, and capability references generated straight from the code. Agents can read
+the whole site as [llms.txt](https://jagguvarma15.github.io/arrowhead/llms.txt). The same
+documents render here:
 
 - [`docs/SECURITY.md`](docs/SECURITY.md) &mdash; each mitigation mapped to the vulnerability class it closes
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) &mdash; attack surface per tool and what is out of scope

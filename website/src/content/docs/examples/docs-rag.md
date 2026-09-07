@@ -1,7 +1,10 @@
-# Docs RAG walkthrough
+---
+title: Docs RAG walkthrough
+description: Chunk documents, embed them, and answer a query with cited chunks.
+---
 
-Two ways to see the retrieval loop — chunk documents, embed them, and answer a query
-with cited chunks. The runnable source lives in
+Two ways to see the retrieval loop - chunk documents, embed them, and answer a
+query with cited chunks. The runnable source lives in
 [`examples/docs_rag/`](https://github.com/jagguvarma15/arrowhead/tree/main/examples/docs_rag);
 run the commands from a repository checkout.
 
@@ -11,10 +14,10 @@ run the commands from a repository checkout.
 uv run python examples/docs_rag/run_offline.py
 ```
 
-This chunks the `corpus/` documents, embeds them with the deterministic provider, and
-prints the chunks most similar to a query, each with its source and chunk index. The
-deterministic embedder is not semantic, so treat the ranking as illustrative of the
-shape, not the quality.
+This chunks the `corpus/` documents, embeds them with the deterministic
+provider, and prints the chunks most similar to a query, each with its source
+and chunk index. The deterministic embedder is not semantic, so treat the
+ranking as illustrative of the shape, not the quality.
 
 ## Real, with Postgres and a real embedder
 
@@ -25,10 +28,11 @@ shape, not the quality.
     psql "$WRITE_DSN" -f deploy/pgvector_schema.sql
     ```
 
-2. Configure a real embedding provider and the read and write credentials. Enabling
-   auth requires the OAuth settings too (issuer, audience, the server's public URL,
-   and a JWKS URI or public key; see the [deployment runbook](../DEPLOY.md)), or the
-   server refuses to start:
+2. Configure a real embedding provider and the read and write credentials.
+   Enabling auth requires the OAuth settings too (issuer, audience, the
+   server's public URL, and a JWKS URI or public key; see the
+   [deployment runbook](/arrowhead/deployment/)), or the server refuses to
+   start:
 
     ```bash
     export ARROWHEAD_AUTH_ENABLED=true
@@ -55,9 +59,9 @@ shape, not the quality.
     ```
 
 4. Call `doc_index(collection="doc_chunks")` to index the corpus, then
-   `vector_query(collection="doc_chunks", query="how long do refunds take?")`. Each
-   result carries the source document and chunk index it came from.
+   `vector_query(collection="doc_chunks", query="how long do refunds take?")`.
+   Each result carries the source document and chunk index it came from.
 
-The write role should be limited to `INSERT`, `UPDATE`, `DELETE`, and `SELECT` on the
-chunks table (a re-index upserts unchanged rows, so `UPDATE` is required); the read
-tools use the read-only `ARROWHEAD_SQL_DSN`.
+The write role should be limited to `INSERT`, `UPDATE`, `DELETE`, and `SELECT`
+on the chunks table (a re-index upserts unchanged rows, so `UPDATE` is
+required); the read tools use the read-only `ARROWHEAD_SQL_DSN`.

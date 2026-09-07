@@ -7,12 +7,16 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
-- A documentation site published to GitHub Pages, built from `docs/` by MkDocs
-  Material. The tool reference renders the catalog's wire descriptions and the
-  configuration reference renders every setting with its real default, both
-  generated at build time by a native MkDocs hook and cross-checked against the
-  code, so the site cannot drift from the surface it documents. A strict site
-  build runs on every pull request.
+- A documentation site published to GitHub Pages, built by Astro Starlight
+  from the repository documents and the site pages under `website/`. The tool
+  reference renders the catalog's wire descriptions, the configuration
+  reference renders every setting with its real default cross-checked against
+  the code, and a capability matrix renders the protocol surface with live
+  counts, all generated at build time and never committed. The site ships
+  `llms.txt` and `llms-full.txt`, a raw markdown mirror of every page,
+  per-client install tabs with one-click Cursor and VS Code links, mermaid
+  architecture diagrams, and a link validator that fails the build on any
+  broken internal link on every pull request.
 
 ## [0.2.832] - 2026-09-06
 

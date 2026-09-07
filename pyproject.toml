@@ -77,9 +77,6 @@ dev = [
     "pytest-cov>=7.0.0",
     "ruff>=0.15.21",
 ]
-docs = [
-    "mkdocs-material>=9.6,<10",
-]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

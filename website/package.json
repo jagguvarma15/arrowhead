@@ -1,0 +1,19 @@
+{
+  "name": "arrowhead-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/ingest.mjs && astro dev",
+    "build": "node scripts/ingest.mjs && astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.42.0",
+    "astro": "^7.3.1",
+    "astro-mermaid": "^2.1.0",
+    "mermaid": "^11.17.2",
+    "sharp": "^0.35.4",
+    "starlight-links-validator": "^0.26.0",
+    "starlight-llms-txt": "^0.11.0"
+  }
+}

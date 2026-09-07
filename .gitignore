@@ -15,5 +15,14 @@ sandbox/*
 /exec-scratch/
 /repo/
 
-# MkDocs build output
-site/
+# Documentation site: toolchain, build output, and the build-time copies
+# (ingested repo documents and generated reference pages) that never live
+# in the repository.
+website/node_modules/
+website/dist/
+website/.astro/
+website/src/content/docs/reference/
+website/src/content/docs/security.md
+website/src/content/docs/threat-model.md
+website/src/content/docs/architecture.md
+website/src/content/docs/deployment.md
