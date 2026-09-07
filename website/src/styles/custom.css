@@ -1,0 +1,34 @@
+/* Brand palette: the rust and near-black the logo and README badges use. */
+:root {
+  --sl-color-accent-low: #3b2013;
+  --sl-color-accent: #c6693e;
+  --sl-color-accent-high: #e8ac8d;
+  --overlay-blurple: color-mix(in srgb, var(--sl-color-accent) 28%, transparent);
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: #f4ddd1;
+  --sl-color-accent: #a5532e;
+  --sl-color-accent-high: #703619;
+}
+
+/* Hero: tighten the tagline and give the actions the brand color. */
+.hero .tagline {
+  max-width: 42rem;
+  margin-inline: auto;
+}
+
+/* Cards: a touch of lift and the accent on icons. */
+.card {
+  border-radius: 0.5rem;
+}
+
+.card .icon {
+  color: var(--sl-color-accent);
+}
+
+/* Keep wide generated tables scrollable instead of stretching the page. */
+.sl-markdown-content table {
+  display: block;
+  overflow-x: auto;
+}
