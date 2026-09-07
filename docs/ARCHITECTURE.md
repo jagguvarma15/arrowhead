@@ -23,58 +23,25 @@ duplicated logic. Two thin SDK middlewares remain, and neither refuses: one
 records the request `_meta` for trace-context propagation, the other filters
 list results by the kill switch and scope. Every refusal lives in the wrapper.
 
-```
-client
-  |
-  v
-[ TLS termination ]            platform / reverse proxy (not the server)
-  |
-  v
-[ Host / Origin check ]        rejects rebinding of the endpoint (when configured)
-  |
-  v
-[ Token verification ]         JWKS signature, issuer, expiry, audience -> 401 on failure
-  |
-  v
-[ meta-capture middleware ]    records request _meta for trace propagation (never refuses)
-  |
-  v
---- guard wrapper on the component ---------------------------------
-  |
-  v
-[ Tracing span ]               opens an OpenTelemetry span, joins caller trace context
-  |
-  v
-[ Audit ]                      times the call; will log caller, name, arg shapes, status
-  |
-  v
-[ Kill switch ]                refuses disabled tools
-  |
-  v
-[ Rate limiter ]               per-caller, per-tool token bucket (Redis-backed)
-  |
-  v
-[ Scope check ]                caller must hold the scope, else the component is unknown
-  |
-  v
-[ Handler ]                    input validation
-  |                              -> per-resource authorization (document, repo, exec)
-  |                              -> guarded action
-  |                              -> content sanitization + provenance (read side)
-  |                              (ssrf_guard / runner / path jail / authz / content)
-  |
-  v
-[ Exception boundary ]         ToolError re-raised verbatim; anything else masked
-  |
-  v
-[ Audit ]                      emits one structured log line (ok / refused / error)
-  |
-  v
-[ Tracing span ]               closes with ok/error status
---------------------------------------------------------------------
-  |
-  v
-client
+```mermaid
+flowchart TD
+    client([client]) --> tls["TLS termination<br>platform or reverse proxy, not the server"]
+    tls --> origin["Host and Origin check<br>rejects rebinding of the endpoint, when configured"]
+    origin --> token["Token verification<br>JWKS signature, issuer, expiry, audience: 401 on failure"]
+    token --> meta["meta-capture middleware<br>records request _meta for trace propagation, never refuses"]
+    meta --> span
+    subgraph guard["guard wrapper on the component"]
+        span["Tracing span<br>opens an OpenTelemetry span, joins caller trace context"]
+        span --> audit["Audit<br>times the call: caller, name, arg shapes, status"]
+        audit --> kill["Kill switch<br>refuses disabled tools"]
+        kill --> rate["Rate limiter<br>per-caller, per-tool token bucket, Redis-backed"]
+        rate --> scope["Scope check<br>caller must hold the scope, else the component is unknown"]
+        scope --> handler["Handler<br>input validation, then per-resource authorization,<br>the guarded action, and content sanitization plus provenance on the read side"]
+        handler --> boundary["Exception boundary<br>ToolError re-raised verbatim, anything else masked"]
+        boundary --> audit2["Audit<br>emits one structured log line: ok, refused, or error"]
+        audit2 --> span2["Tracing span<br>closes with ok or error status"]
+    end
+    span2 --> back([client])
 ```
 
 The scope check is a capability gate (may this caller use this tool at all).
@@ -89,15 +56,17 @@ line and a closed span, so nothing is invisible to operators.
 
 ## Authentication flow
 
-```
-1. Client calls the server without a token.
-2. Server responds 401 with a pointer to
-   /.well-known/oauth-protected-resource/mcp (RFC 9728).
-3. Client reads that metadata, discovers the authorization server, and
-   completes an OAuth 2.1 + PKCE flow against it (not against Arrowhead).
-4. Client retries with the bearer token.
-5. Server verifies signature (JWKS or static key), issuer, expiry, and that
-   the audience names this server, then checks the tool's required scope.
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Arrowhead
+    participant AS as Authorization server
+    Client->>Arrowhead: request without a token
+    Arrowhead-->>Client: 401 with a pointer to /.well-known/oauth-protected-resource/mcp (RFC 9728)
+    Client->>AS: OAuth 2.1 + PKCE flow (not against Arrowhead)
+    AS-->>Client: bearer token
+    Client->>Arrowhead: retry with the bearer token
+    Arrowhead->>Arrowhead: verify signature (JWKS or static key), issuer, expiry, audience, then the tool's required scope
 ```
 
 Arrowhead issues no tokens and stores no client secrets. It is purely a
@@ -186,20 +155,13 @@ src/arrowhead/
 
 ## Deployment shape
 
-```
-                 +-------------------+
-   HTTPS  ---->  |  platform / proxy |  (TLS termination)
-                 +---------+---------+
-                           | HTTP
-                           v
-                 +-------------------+        +-----------+
-                 |     arrowhead     | <----> |   Redis   |  (rate-limit buckets)
-                 |   HTTP + disk     |        +-----------+
-                 +-------------------+
-                    |            |
-                    v            v
-        persistent disk     external OAuth 2.1
-        (document corpus)   authorization server (JWKS)
+```mermaid
+flowchart LR
+    https([HTTPS]) --> proxy["platform or proxy<br>TLS termination"]
+    proxy -->|HTTP| arrowhead["arrowhead<br>HTTP + disk"]
+    arrowhead <--> redis[("Redis<br>rate-limit buckets")]
+    arrowhead --> disk[("persistent disk<br>document corpus")]
+    arrowhead --> oauth["external OAuth 2.1<br>authorization server, JWKS"]
 ```
 
 The request path itself is stateless — any instance can serve any request,
